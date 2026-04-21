@@ -1,0 +1,26 @@
+services:
+  backup-webapp-api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: backup-webapp-api
+    restart: unless-stopped
+    environment:
+      PORT: "8011"
+      BACKUP_CONTAINER_NAME: backup_sync
+      BACKUP_SCRIPT_PATH: /app/backup_sync.sh
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - "8011:8011"
+
+  backup-webapp-frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: backup-webapp-frontend
+    restart: unless-stopped
+    depends_on:
+      - backup-webapp-api
+    ports:
+      - "5181:80"
