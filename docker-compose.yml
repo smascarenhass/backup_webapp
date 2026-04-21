@@ -10,7 +10,10 @@ services:
       BACKUP_CONTAINER_NAME: backup_sync
       BACKUP_SCRIPT_PATH: /app/backup_sync.sh
     volumes:
+      - ./backend:/app
+      - /app/node_modules
       - /var/run/docker.sock:/var/run/docker.sock
+    command: npm run dev
     ports:
       - "8011:8011"
 
@@ -18,9 +21,14 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.frontend
+      target: dev
     container_name: backup-webapp-frontend
     restart: unless-stopped
     depends_on:
       - backup-webapp-api
+    command: npm run dev -- --host 0.0.0.0 --port 5173
+    volumes:
+      - ./:/app
+      - /app/node_modules
     ports:
-      - "5181:80"
+      - "5181:5173"
