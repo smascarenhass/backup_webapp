@@ -18,7 +18,7 @@ export function useDashboardController() {
       setHealth(h);
     } catch (e) {
       setHealth(null);
-      setError(e instanceof Error ? e.message : "Erro desconhecido");
+      setError(e instanceof Error ? e.message : "Unknown error");
     } finally {
       setLoading(false);
     }
@@ -37,7 +37,7 @@ export function useDashboardController() {
       setTriggerMsg(r.message);
     } catch (e) {
       setTriggerMsg(null);
-      setError(e instanceof Error ? e.message : "Erro desconhecido");
+      setError(e instanceof Error ? e.message : "Unknown error");
     } finally {
       setTriggerBusy(false);
     }

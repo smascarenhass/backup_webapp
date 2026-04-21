@@ -7,7 +7,7 @@ const execFileAsync = promisify(execFile);
 
 const app = express();
 const port = Number(process.env.PORT ?? "8011");
-/** Container do backup_sync (opcional); se não existir, o trigger retorna aviso. */
+/** backup_sync container (optional); trigger returns warning if missing. */
 const backupContainer =
   process.env.BACKUP_CONTAINER_NAME ?? "backup_sync";
 const backupScriptPath =
@@ -31,8 +31,8 @@ app.post("/api/backup/trigger", async (_req, res) => {
     res.json({
       ok: true,
       message: out
-        ? `Backup executado no container ${backupContainer}.`
-        : `Comando enviado ao container ${backupContainer}.`,
+        ? `Backup executed in container ${backupContainer}.`
+        : `Command sent to container ${backupContainer}.`,
       detail: out || undefined,
     });
   } catch (err) {
@@ -40,7 +40,7 @@ app.post("/api/backup/trigger", async (_req, res) => {
     res.status(500).json({
       ok: false,
       message:
-        "Falha ao executar backup via Docker. Verifique se o Docker socket está montado e o container existe.",
+        "Failed to run backup via Docker. Check whether the Docker socket is mounted and the container exists.",
       detail: msg,
     });
   }
