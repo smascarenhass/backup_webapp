@@ -4,21 +4,21 @@ Minimal web panel (React + TypeScript + Vite + Tailwind) with a Node API to inte
 
 ## Structure
 
-- **`src/pages/<PageName>/view.tsx`** - page UI.
-- **`src/pages/<PageName>/controller.ts`** - page logic, state, and service calls.
-- **`src/services/backupService.ts`** - API HTTP client.
+- **`frontend/src/pages/<PageName>/view.tsx`** - page UI.
+- **`frontend/src/pages/<PageName>/controller.ts`** - page logic, state, and service calls.
+- **`frontend/src/services/backupService.ts`** - API HTTP client.
 - **`backend/`** - Express API (`/api/health`, `POST /api/backup/trigger`).
 
 ## Local development
 
 ```bash
 cd /hdds/main/services/backup_webapp
-npm install
+cd frontend && npm install && cd ..
 cd backend && npm install && cd ..
 # Terminal 1
 cd backend && npm start
 # Terminal 2
-npm run dev
+cd frontend && npm run dev
 ```
 
 Vite proxies `/api` to `http://127.0.0.1:8011`.
