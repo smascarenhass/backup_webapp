@@ -30,6 +30,24 @@ function formatBytes(value: number) {
   return `${current.toFixed(current >= 10 || idx === 0 ? 0 : 1)} ${units[idx]}`;
 }
 
+function formatDurationMs(value: number | null) {
+  if (value == null || !Number.isFinite(value) || value < 0) {
+    return "-";
+  }
+  const totalSeconds = Math.round(value / 1000);
+  if (totalSeconds < 60) {
+    return `${totalSeconds}s`;
+  }
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes < 60) {
+    return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
+  }
+  const hours = Math.floor(minutes / 60);
+  const restMinutes = minutes % 60;
+  return restMinutes > 0 ? `${hours}h ${restMinutes}m` : `${hours}h`;
+}
+
 export function VerificationsView({ controller }: VerificationsViewProps) {
   const { history, loadingHistory, reloadHistory, toHostPath } = controller;
 
@@ -71,6 +89,7 @@ export function VerificationsView({ controller }: VerificationsViewProps) {
                   <th className="px-2 py-2">Data/Hora</th>
                   <th className="px-2 py-2">Tipo</th>
                   <th className="px-2 py-2">Versão</th>
+                  <th className="px-2 py-2">Duração</th>
                   <th className="px-2 py-2">Pasta</th>
                   <th className="px-2 py-2">Arquivo</th>
                   <th className="px-2 py-2 text-right">Tamanho</th>
@@ -84,6 +103,7 @@ export function VerificationsView({ controller }: VerificationsViewProps) {
                       {item.triggerType === "automatic" ? "Automático" : "Manual"}
                     </td>
                     <td className="px-2 py-2">v{item.version}</td>
+                    <td className="px-2 py-2">{formatDurationMs(item.durationMs)}</td>
                     <td className="px-2 py-2 font-mono text-xs">{toHostPath(item.folderPath)}</td>
                     <td className="px-2 py-2 font-mono text-xs">{toHostPath(item.archivePath)}</td>
                     <td className="px-2 py-2 text-right">{formatBytes(item.sizeBytes)}</td>

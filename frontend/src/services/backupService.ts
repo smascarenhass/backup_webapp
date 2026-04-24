@@ -182,6 +182,7 @@ export type BackupHistoryItem = {
   folderPath: string;
   archivePath: string;
   sizeBytes: number;
+  durationMs: number | null;
   createdAt: string;
   triggerType: "manual" | "automatic";
   version: number;

@@ -44,6 +44,10 @@ async function readStore() {
             folderPath: normalizeFolderPath(item.folderPath),
             archivePath: normalizeFolderPath(item.archivePath),
             sizeBytes: Number(item.sizeBytes ?? 0),
+            durationMs:
+              item.durationMs != null && Number.isFinite(Number(item.durationMs))
+                ? Math.max(0, Math.round(Number(item.durationMs)))
+                : null,
             createdAt: String(item.createdAt ?? ""),
             triggerType:
               item.triggerType === "automatic" ? "automatic" : "manual",
@@ -135,6 +139,7 @@ export async function recordFolderBackup({
   folderPath,
   archivePath,
   sizeBytes,
+  durationMs,
   triggerType,
 }) {
   const store = await readStore();
@@ -149,6 +154,10 @@ export async function recordFolderBackup({
     folderPath: normalizeFolderPath(folderPath),
     archivePath: normalizeFolderPath(archivePath),
     sizeBytes: Math.max(0, Number(sizeBytes ?? 0)),
+    durationMs:
+      durationMs != null && Number.isFinite(Number(durationMs))
+        ? Math.max(0, Math.round(Number(durationMs)))
+        : null,
     createdAt: now,
     triggerType: triggerType === "automatic" ? "automatic" : "manual",
     version: lastVersion + 1,

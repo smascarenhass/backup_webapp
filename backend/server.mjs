@@ -346,13 +346,16 @@ async function executeBackupPipeline({
       const stamp = new Date().toISOString().replaceAll(":", "-");
       const archiveName = buildSafeArchiveName(folder.path, stamp);
       const archivePath = path.join(settings.backupMountPath, archiveName);
+      const compressStartedAt = Date.now();
       await execFileAsync("tar", ["-czf", archivePath, "-C", resolvedFolder, "."]);
+      const compressDurationMs = Date.now() - compressStartedAt;
       const archiveStat = await stat(archivePath);
       await recordFolderBackup({
         folderId: folder.id,
         folderPath: folder.path,
         archivePath,
         sizeBytes: archiveStat.size,
+        durationMs: compressDurationMs,
         triggerType,
       });
       createdArchives.push(archivePath);
