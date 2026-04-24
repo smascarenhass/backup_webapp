@@ -1,6 +1,6 @@
 # backup_webapp
 
-Minimal web panel (React + TypeScript + Vite + Tailwind) with a Node API to integrate with the Docker backup system (`backup_sync`).
+Minimal web panel (React + TypeScript + Vite + Tailwind) with a Node API. The repository also contains the **external** `backup_sync` service (supercronic) under `backup_sync/`.
 
 ## Structure
 
@@ -12,7 +12,7 @@ Minimal web panel (React + TypeScript + Vite + Tailwind) with a Node API to inte
 ## Local development
 
 ```bash
-cd /hdds/main/services/backup_webapp
+cd /hdds/main/documents/projects/backup_webapp
 cd frontend && npm install && cd ..
 cd backend && npm install && cd ..
 # Terminal 1
@@ -31,7 +31,7 @@ Ports:
 - **API:** `8011` (optional for debugging; the browser can use only `5181` through proxy)
 
 ```bash
-cd /hdds/main/services/backup_webapp
+cd /hdds/main/documents/projects/backup_webapp
 docker compose up -d --build
 ```
 
@@ -47,7 +47,18 @@ Variables (defaults in `docker-compose.yml`):
 - `BACKUP_CONTAINER_NAME=backup_sync`
 - `BACKUP_SCRIPT_PATH=/app/backup_sync.sh`
 
-Make sure the backup container (`/hdds/main/services/backup`) is running with that name.
+The `backup_sync` service is defined in this repo (`docker-compose.yml`, service `backup_sync`). Start it with:
+
+```bash
+cd /hdds/main/documents/projects/backup_webapp
+docker compose up -d --build backup_sync
+```
+
+Or start everything (webapp + backup_sync):
+
+```bash
+docker compose up -d --build
+```
 
 ## Variables
 

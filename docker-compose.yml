@@ -37,3 +37,19 @@ services:
       - /app/node_modules
     ports:
       - "5181:5173"
+
+  backup_sync:
+    build:
+      context: ./backup_sync
+      dockerfile: Dockerfile
+    image: backup-sync:local
+    container_name: backup_sync
+    restart: unless-stopped
+    environment:
+      - TZ=America/Sao_Paulo
+      - BACKUP_CONFIG_FILE=/config/backup.conf
+    volumes:
+      - ./backup_sync/backup.conf:/config/backup.conf:ro
+      - /hdds/main:/data/origem:ro
+      - /hdds/backup:/data/backup
+      - ./backup_sync/logs:/var/log/backup
