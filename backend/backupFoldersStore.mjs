@@ -28,7 +28,7 @@ async function readStore() {
   try {
     const parsed = JSON.parse(raw);
     if (!parsed || !Array.isArray(parsed.folders)) {
-      return { folders: [] };
+      return { folders: [], backupHistory: [] };
     }
     return {
       folders: parsed.folders.map((folder) => ({
@@ -37,9 +37,19 @@ async function readStore() {
         createdAt: String(folder.createdAt ?? ""),
         lastBackupAt: folder.lastBackupAt ? String(folder.lastBackupAt) : null,
       })),
+      backupHistory: Array.isArray(parsed.backupHistory)
+        ? parsed.backupHistory.map((item) => ({
+            id: String(item.id ?? ""),
+            folderId: String(item.folderId ?? ""),
+            folderPath: normalizeFolderPath(item.folderPath),
+            archivePath: normalizeFolderPath(item.archivePath),
+            sizeBytes: Number(item.sizeBytes ?? 0),
+            createdAt: String(item.createdAt ?? ""),
+          }))
+        : [],
     };
   } catch {
-    return { folders: [] };
+    return { folders: [], backupHistory: [] };
   }
 }
 
@@ -51,6 +61,11 @@ async function writeStore(store) {
 export async function listBackupFolders() {
   const store = await readStore();
   return store.folders;
+}
+
+export async function listBackupHistory() {
+  const store = await readStore();
+  return store.backupHistory;
 }
 
 export async function addBackupFolder(rawPath) {
@@ -88,7 +103,8 @@ export async function removeBackupFolder(id) {
   if (!removed) {
     return false;
   }
-  await writeStore({ folders: nextFolders });
+  const nextHistory = store.backupHistory.filter((item) => item.folderId !== folderId);
+  await writeStore({ folders: nextFolders, backupHistory: nextHistory });
   return true;
 }
 
@@ -107,6 +123,41 @@ export async function touchBackupFolders(folderIds) {
     updatedIds.push(folder.id);
     return { ...folder, lastBackupAt: now };
   });
-  await writeStore({ folders: updatedFolders });
+  await writeStore({ folders: updatedFolders, backupHistory: store.backupHistory });
   return updatedIds;
+}
+
+export async function recordFolderBackup({ folderId, folderPath, archivePath, sizeBytes }) {
+  const store = await readStore();
+  const now = new Date().toISOString();
+  const entry = {
+    id: randomUUID(),
+    folderId: String(folderId),
+    folderPath: normalizeFolderPath(folderPath),
+    archivePath: normalizeFolderPath(archivePath),
+    sizeBytes: Math.max(0, Number(sizeBytes ?? 0)),
+    createdAt: now,
+  };
+  const updatedFolders = store.folders.map((folder) =>
+    folder.id === folderId ? { ...folder, lastBackupAt: now } : folder,
+  );
+  await writeStore({
+    folders: updatedFolders,
+    backupHistory: [...store.backupHistory, entry],
+  });
+  return entry;
+}
+
+export async function removeBackupHistoryEntries(entryIds) {
+  const ids = new Set((entryIds ?? []).map((id) => String(id)));
+  if (!ids.size) {
+    return 0;
+  }
+  const store = await readStore();
+  const nextHistory = store.backupHistory.filter((entry) => !ids.has(entry.id));
+  const removed = store.backupHistory.length - nextHistory.length;
+  if (removed > 0) {
+    await writeStore({ folders: store.folders, backupHistory: nextHistory });
+  }
+  return removed;
 }

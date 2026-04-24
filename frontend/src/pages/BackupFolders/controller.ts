@@ -6,11 +6,23 @@ function getErrorMessage(error: unknown, fallback: string) {
 }
 
 export function useBackupFoldersController() {
-  const allowedBasePath = "/hdds/main";
+  const hostBackendBasePath =
+    import.meta.env.VITE_HOST_BACKEND_BASE_PATH ??
+    "/hdds/main/documents/projects/backup_webapp/backend";
   const [health, setHealth] = useState<backupService.HealthResponse | null>(null);
   const [loadingHealth, setLoadingHealth] = useState(true);
   const [folders, setFolders] = useState<backupService.BackupFolder[]>([]);
   const [loadingFolders, setLoadingFolders] = useState(true);
+  const [settings, setSettings] = useState<backupService.BackupSettings | null>(null);
+  const [settingsForm, setSettingsForm] = useState({
+    mainMountPath: "",
+    backupMountPath: "",
+    maxAgeDays: "30",
+    maxBackups: "30",
+  });
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [metrics, setMetrics] = useState<backupService.BackupStorageMetrics | null>(null);
+  const [loadingMetrics, setLoadingMetrics] = useState(true);
   const [pathInput, setPathInput] = useState("");
   const [directorySuggestions, setDirectorySuggestions] = useState<
     backupService.DirectorySuggestion[]
@@ -23,6 +35,8 @@ export function useBackupFoldersController() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const suggestionRequestIdRef = useRef(0);
+
+  const allowedBasePath = settings?.mainMountPath || "/hdds/main";
 
   const loadDirectorySuggestions = useCallback(async (query: string) => {
     const requestId = suggestionRequestIdRef.current + 1;
@@ -76,9 +90,36 @@ export function useBackupFoldersController() {
     }
   }, []);
 
+  const loadSettings = useCallback(async () => {
+    try {
+      const nextSettings = await backupService.fetchBackupSettings();
+      setSettings(nextSettings);
+      setSettingsForm({
+        mainMountPath: nextSettings.mainMountPath,
+        backupMountPath: nextSettings.backupMountPath,
+        maxAgeDays: String(nextSettings.retention.maxAgeDays),
+        maxBackups: String(nextSettings.retention.maxBackups),
+      });
+    } catch (err) {
+      setError(getErrorMessage(err, "Failed to load backup settings."));
+    }
+  }, []);
+
+  const loadMetrics = useCallback(async () => {
+    setLoadingMetrics(true);
+    try {
+      const nextMetrics = await backupService.fetchBackupStorageMetrics();
+      setMetrics(nextMetrics);
+    } catch {
+      setMetrics(null);
+    } finally {
+      setLoadingMetrics(false);
+    }
+  }, []);
+
   useEffect(() => {
-    void Promise.all([loadHealth(), loadFolders()]);
-  }, [loadHealth, loadFolders]);
+    void Promise.all([loadHealth(), loadFolders(), loadSettings(), loadMetrics()]);
+  }, [loadHealth, loadFolders, loadMetrics, loadSettings]);
 
   useEffect(() => {
     const trimmed = pathInput.trim();
@@ -235,16 +276,55 @@ export function useBackupFoldersController() {
     setMessage(null);
     try {
       const response = await backupService.triggerBackup(selectedFolderIds);
-      await loadFolders();
+      await Promise.all([loadFolders(), loadMetrics()]);
       setMessage(
-        `${response.message} Processed folders: ${response.processedFolders}.`,
+        `${response.message} Processed folders: ${response.processedFolders}. Removed by retention: ${
+          response.removedByRetention ?? 0
+        }.`,
       );
     } catch (err) {
       setError(getErrorMessage(err, "Failed to trigger backup."));
     } finally {
       setBusy(false);
     }
-  }, [loadFolders, selectedFolderIds]);
+  }, [loadFolders, loadMetrics, selectedFolderIds]);
+
+  const updateSettingsField = useCallback(
+    (field: "mainMountPath" | "backupMountPath" | "maxAgeDays" | "maxBackups", value: string) => {
+      setSettingsForm((current) => ({ ...current, [field]: value }));
+    },
+    [],
+  );
+
+  const saveSettings = useCallback(async () => {
+    setSavingSettings(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const normalized: backupService.BackupSettings = {
+        mainMountPath: settingsForm.mainMountPath.trim(),
+        backupMountPath: settingsForm.backupMountPath.trim(),
+        retention: {
+          maxAgeDays: Number.parseInt(settingsForm.maxAgeDays, 10),
+          maxBackups: Number.parseInt(settingsForm.maxBackups, 10),
+        },
+      };
+      const saved = await backupService.updateBackupSettings(normalized);
+      setSettings(saved);
+      setSettingsForm({
+        mainMountPath: saved.mainMountPath,
+        backupMountPath: saved.backupMountPath,
+        maxAgeDays: String(saved.retention.maxAgeDays),
+        maxBackups: String(saved.retention.maxBackups),
+      });
+      await Promise.all([loadMetrics(), loadFolders()]);
+      setMessage("Configurações de armazenamento salvas.");
+    } catch (err) {
+      setError(getErrorMessage(err, "Failed to save backup settings."));
+    } finally {
+      setSavingSettings(false);
+    }
+  }, [loadFolders, loadMetrics, settingsForm]);
 
   const toggleFolderSelection = useCallback((id: string) => {
     setSelectedFolderIds((current) =>
@@ -272,11 +352,49 @@ export function useBackupFoldersController() {
     return `Request backup (${selectedCount} selected)`;
   }, [hasFolders, selectedCount]);
 
+  const toHostPath = useCallback(
+    (runtimePath: string | null | undefined) => {
+      if (!runtimePath) {
+        return "";
+      }
+      if (runtimePath === "/app") {
+        return hostBackendBasePath;
+      }
+      if (runtimePath.startsWith("/app/")) {
+        return `${hostBackendBasePath}${runtimePath.slice("/app".length)}`;
+      }
+      return runtimePath;
+    },
+    [hostBackendBasePath],
+  );
+
+  const toRuntimePath = useCallback(
+    (hostPath: string | null | undefined) => {
+      const value = String(hostPath ?? "").trim();
+      if (!value) {
+        return "";
+      }
+      if (value === hostBackendBasePath) {
+        return "/app";
+      }
+      if (value.startsWith(`${hostBackendBasePath}/`)) {
+        return `/app${value.slice(hostBackendBasePath.length)}`;
+      }
+      return value;
+    },
+    [hostBackendBasePath],
+  );
+
   return {
     health,
     loadingHealth,
     folders,
     loadingFolders,
+    settings,
+    settingsForm,
+    savingSettings,
+    metrics,
+    loadingMetrics,
     pathInput,
     setPathInput: setPathInputValue,
     directorySuggestions,
@@ -291,6 +409,8 @@ export function useBackupFoldersController() {
     message,
     error,
     addFolder,
+    updateSettingsField,
+    saveSettings,
     selectDirectorySuggestion,
     openDirectorySuggestions,
     clearDirectorySuggestions,
@@ -302,5 +422,7 @@ export function useBackupFoldersController() {
     clearSelection,
     reload: loadFolders,
     triggerLabel,
+    toHostPath,
+    toRuntimePath,
   };
 }

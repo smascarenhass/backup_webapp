@@ -33,6 +33,8 @@ export type TriggerBackupResponse = {
   ok: boolean;
   message: string;
   processedFolders: number;
+  removedByRetention?: number;
+  archives?: string[];
 };
 
 export async function triggerBackup(
@@ -103,6 +105,66 @@ export async function deleteBackupFolder(id: string): Promise<void> {
   if (!res.ok) {
     throw new Error(`Folder deletion failed: HTTP ${res.status}`);
   }
+}
+
+export type BackupSettings = {
+  mainMountPath: string;
+  backupMountPath: string;
+  retention: {
+    maxAgeDays: number;
+    maxBackups: number;
+  };
+};
+
+type BackupSettingsResponse = {
+  settings: BackupSettings;
+};
+
+export async function fetchBackupSettings(): Promise<BackupSettings> {
+  const res = await fetch(`${API_BASE}/api/backup/settings`);
+  if (!res.ok) {
+    throw new Error(`Settings load failed: HTTP ${res.status}`);
+  }
+  const data = await parseJson<BackupSettingsResponse>(res);
+  return data.settings;
+}
+
+export async function updateBackupSettings(
+  settings: BackupSettings,
+): Promise<BackupSettings> {
+  const res = await fetch(`${API_BASE}/api/backup/settings`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(settings),
+  });
+  if (!res.ok) {
+    throw new Error(`Settings update failed: HTTP ${res.status}`);
+  }
+  const data = await parseJson<BackupSettingsResponse>(res);
+  return data.settings;
+}
+
+export type BackupStorageMetrics = {
+  freeBytes: number;
+  totalBackupsSizeBytes: number;
+  historyEntries: number;
+  avgBackupSizeBytes: number | null;
+  backupFrequencyPerDay: number | null;
+  estimatedBackupsFit: number | null;
+  estimatedDaysFit: number | null;
+};
+
+type BackupStorageMetricsResponse = {
+  metrics: BackupStorageMetrics;
+};
+
+export async function fetchBackupStorageMetrics(): Promise<BackupStorageMetrics> {
+  const res = await fetch(`${API_BASE}/api/backup/storage-metrics`);
+  if (!res.ok) {
+    throw new Error(`Storage metrics failed: HTTP ${res.status}`);
+  }
+  const data = await parseJson<BackupStorageMetricsResponse>(res);
+  return data.metrics;
 }
 
 export async function searchDirectories(

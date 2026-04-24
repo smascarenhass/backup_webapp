@@ -1,0 +1,8 @@
+{
+  "mainMountPath": "/hdds/main/",
+  "backupMountPath": "/hdds/backup/",
+  "retention": {
+    "maxAgeDays": 30,
+    "maxBackups": 1
+  }
+}
