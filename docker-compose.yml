@@ -9,9 +9,11 @@ services:
       PORT: "8011"
       BACKUP_CONTAINER_NAME: backup_sync
       BACKUP_SCRIPT_PATH: /app/backup_sync.sh
+      BROWSE_BASE_PATH: /hdds/main
     volumes:
       - ./backend:/app
       - /app/node_modules
+      - /hdds/main:/hdds/main:ro
       - /var/run/docker.sock:/var/run/docker.sock
     command: npm run dev
     ports:

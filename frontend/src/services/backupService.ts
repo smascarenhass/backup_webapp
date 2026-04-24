@@ -64,6 +64,16 @@ type CreateBackupFolderResponse = {
   folder: BackupFolder;
 };
 
+export type DirectorySuggestion = {
+  name: string;
+  path: string;
+};
+
+type SearchDirectoriesResponse = {
+  basePath: string;
+  directories: DirectorySuggestion[];
+};
+
 export async function listBackupFolders(): Promise<BackupFolder[]> {
   const res = await fetch(`${API_BASE}/api/backup/folders`);
   if (!res.ok) {
@@ -93,4 +103,20 @@ export async function deleteBackupFolder(id: string): Promise<void> {
   if (!res.ok) {
     throw new Error(`Folder deletion failed: HTTP ${res.status}`);
   }
+}
+
+export async function searchDirectories(
+  query: string,
+  limit = 20,
+): Promise<DirectorySuggestion[]> {
+  const params = new URLSearchParams({
+    q: query,
+    limit: String(limit),
+  });
+  const res = await fetch(`${API_BASE}/api/fs/directories?${params.toString()}`);
+  if (!res.ok) {
+    throw new Error(`Directory search failed: HTTP ${res.status}`);
+  }
+  const data = await parseJson<SearchDirectoriesResponse>(res);
+  return data.directories;
 }

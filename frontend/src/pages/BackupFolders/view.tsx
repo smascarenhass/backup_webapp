@@ -22,6 +22,10 @@ export function BackupFoldersView() {
     loadingFolders,
     pathInput,
     setPathInput,
+    directorySuggestions,
+    loadingSuggestions,
+    highlightedSuggestionIndex,
+    showSuggestions,
     selectedFolderIds,
     selectedCount,
     allSelected,
@@ -30,6 +34,10 @@ export function BackupFoldersView() {
     message,
     error,
     addFolder,
+    selectDirectorySuggestion,
+    openDirectorySuggestions,
+    clearDirectorySuggestions,
+    handlePathInputKeyDown,
     removeFolder,
     triggerBackup,
     toggleFolderSelection,
@@ -68,13 +76,68 @@ export function BackupFoldersView() {
           Adicionar pasta
         </h2>
         <div className="mt-3 flex flex-col gap-3 sm:flex-row">
-          <input
-            type="text"
-            value={pathInput}
-            onChange={(event) => setPathInput(event.target.value)}
-            placeholder="/caminho/da/pasta"
-            className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-emerald-600"
-          />
+          <div className="relative w-full">
+            <input
+              type="text"
+              value={pathInput}
+              onChange={(event) => setPathInput(event.target.value)}
+              onFocus={() => {
+                openDirectorySuggestions();
+              }}
+              onKeyDown={(event) => {
+                const handled = handlePathInputKeyDown(event.key);
+                if (handled) {
+                  event.preventDefault();
+                }
+              }}
+              onBlur={() => {
+                setTimeout(() => {
+                  clearDirectorySuggestions();
+                }, 120);
+              }}
+              placeholder="/caminho/da/pasta"
+              className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-emerald-600"
+            />
+            {showSuggestions && (
+              <div
+                role="listbox"
+                className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-lg border border-slate-700 bg-slate-950 shadow-lg"
+              >
+                {loadingSuggestions && (
+                  <p className="px-3 py-2 text-sm text-slate-400">Buscando pastas...</p>
+                )}
+                {!loadingSuggestions && directorySuggestions.length === 0 && (
+                  <p className="px-3 py-2 text-sm text-slate-400">
+                    Nenhum diretório encontrado neste nível.
+                  </p>
+                )}
+                {!loadingSuggestions &&
+                  directorySuggestions.map((suggestion, index) => {
+                    const highlighted = index === highlightedSuggestionIndex;
+                    return (
+                      <button
+                        key={suggestion.path}
+                        role="option"
+                        aria-selected={highlighted}
+                        type="button"
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => selectDirectorySuggestion(suggestion.path)}
+                        className={`block w-full px-3 py-2 text-left text-sm ${
+                          highlighted
+                            ? "bg-emerald-700/40 text-emerald-100"
+                            : "text-slate-200 hover:bg-slate-800"
+                        }`}
+                      >
+                        <span className="font-medium">{suggestion.name}</span>
+                        <span className="ml-2 font-mono text-xs text-slate-400">
+                          {suggestion.path}
+                        </span>
+                      </button>
+                    );
+                  })}
+              </div>
+            )}
+          </div>
           <button
             type="button"
             disabled={busy}

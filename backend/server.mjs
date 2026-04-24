@@ -1,6 +1,8 @@
 import cors from "cors";
 import express from "express";
 import { execFile } from "node:child_process";
+import { readdir } from "node:fs/promises";
+import path from "node:path";
 import { promisify } from "node:util";
 import {
   addBackupFolder,
@@ -18,6 +20,7 @@ const backupContainer =
   process.env.BACKUP_CONTAINER_NAME ?? "backup_sync";
 const backupScriptPath =
   process.env.BACKUP_SCRIPT_PATH ?? "/app/backup_sync.sh";
+const allowedBasePath = process.env.BROWSE_BASE_PATH ?? "/hdds/main";
 
 app.use(cors());
 app.use(express.json());
@@ -34,6 +37,102 @@ app.get("/api/backup/folders", async (_req, res) => {
     const msg = err instanceof Error ? err.message : String(err);
     res.status(500).json({
       message: "Failed to load backup folders.",
+      detail: msg,
+    });
+  }
+});
+
+function isPathInsideBase(targetPath) {
+  return (
+    targetPath === allowedBasePath ||
+    targetPath.startsWith(`${allowedBasePath}${path.sep}`)
+  );
+}
+
+function parseDirectoryQuery(rawQuery) {
+  const query = typeof rawQuery === "string" ? rawQuery.trim() : "";
+  const normalizedQuery = query.replace(/\\/g, "/");
+  const effectiveInput =
+    normalizedQuery.length === 0
+      ? allowedBasePath
+      : path.isAbsolute(normalizedQuery)
+        ? normalizedQuery
+        : path.join(allowedBasePath, normalizedQuery);
+  const resolvedInput = path.resolve(effectiveInput);
+
+  if (!isPathInsideBase(resolvedInput)) {
+    return { error: "Path must stay inside /hdds/main." };
+  }
+
+  const isDirectoryHint = normalizedQuery.endsWith("/");
+  if (resolvedInput === allowedBasePath) {
+    return {
+      parentPath: allowedBasePath,
+      prefix: "",
+    };
+  }
+  const parentPath = isDirectoryHint
+    ? resolvedInput
+    : path.dirname(resolvedInput);
+  const prefix = isDirectoryHint ? "" : path.basename(resolvedInput);
+
+  if (!isPathInsideBase(parentPath)) {
+    return { error: "Path must stay inside /hdds/main." };
+  }
+
+  return {
+    parentPath,
+    prefix,
+  };
+}
+
+app.get("/api/fs/directories", async (req, res) => {
+  const parsedLimit = Number.parseInt(String(req.query.limit ?? "20"), 10);
+  const limit =
+    Number.isFinite(parsedLimit) && parsedLimit > 0
+      ? Math.min(parsedLimit, 100)
+      : 20;
+  const queryData = parseDirectoryQuery(req.query.q);
+
+  if ("error" in queryData) {
+    return res.status(400).json({
+      message: "Invalid directory query.",
+      detail: queryData.error,
+    });
+  }
+
+  try {
+    const entries = await readdir(queryData.parentPath, { withFileTypes: true });
+    const normalizedPrefix = queryData.prefix.toLowerCase();
+    const directories = entries
+      .filter((entry) => entry.isDirectory())
+      .filter((entry) => entry.name.toLowerCase().startsWith(normalizedPrefix))
+      .sort((left, right) => left.name.localeCompare(right.name))
+      .slice(0, limit)
+      .map((entry) => ({
+        name: entry.name,
+        path: path.join(queryData.parentPath, entry.name),
+      }));
+
+    return res.json({
+      basePath: allowedBasePath,
+      directories,
+    });
+  } catch (err) {
+    if (
+      typeof err === "object" &&
+      err !== null &&
+      "code" in err &&
+      (err.code === "ENOENT" || err.code === "ENOTDIR")
+    ) {
+      return res.json({
+        basePath: allowedBasePath,
+        directories: [],
+      });
+    }
+    const msg = err instanceof Error ? err.message : String(err);
+    return res.status(500).json({
+      message: "Failed to search directories.",
       detail: msg,
     });
   }
