@@ -3,5 +3,5 @@ dist
 *.local
 .DS_Store
 backend/node_modules
-backup_sync/logs
-backup_sync/logs/*.log
+backend/backup_sync/logs
+backend/backup_sync/logs/*.log

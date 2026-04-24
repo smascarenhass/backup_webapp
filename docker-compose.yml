@@ -40,7 +40,7 @@ services:
 
   backup_sync:
     build:
-      context: ./backup_sync
+      context: ./backend/backup_sync
       dockerfile: Dockerfile
     image: backup-sync:local
     container_name: backup_sync
@@ -49,7 +49,7 @@ services:
       - TZ=America/Sao_Paulo
       - BACKUP_CONFIG_FILE=/config/backup.conf
     volumes:
-      - ./backup_sync/backup.conf:/config/backup.conf:ro
+      - ./backend/backup_sync/backup.conf:/config/backup.conf:ro
       - /hdds/main:/data/origem:ro
       - /hdds/backup:/data/backup
-      - ./backup_sync/logs:/var/log/backup
+      - ./backend/backup_sync/logs:/var/log/backup

@@ -40,7 +40,9 @@ ensure_command() {
 }
 
 load_config() {
-  local fallback_config="/hdds/main/documents/projects/backup_webapp/backup_sync/backup.conf"
+  local script_dir
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  local fallback_config="${script_dir}/backup.conf"
 
   if [[ -f "$BACKUP_CONFIG_FILE" ]]; then
     # shellcheck disable=SC1090

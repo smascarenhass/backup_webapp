@@ -1,6 +1,8 @@
 # backup_webapp
 
-Minimal web panel (React + TypeScript + Vite + Tailwind) with a Node API. The repository also contains the **external** `backup_sync` service (supercronic) under `backup_sync/`.
+Minimal web panel (React + TypeScript + Vite + Tailwind) with a Node API. The repository also contains the **external** `backup_sync` service (supercronic) under `backend/backup_sync/`.
+
+Documentação detalhada: [`backend/backup_sync/README.md`](backend/backup_sync/README.md).
 
 ## Structure
 
@@ -8,6 +10,7 @@ Minimal web panel (React + TypeScript + Vite + Tailwind) with a Node API. The re
 - **`frontend/src/pages/<PageName>/controller.ts`** - page logic, state, and service calls.
 - **`frontend/src/services/backupService.ts`** - API HTTP client.
 - **`backend/`** - Express API (`/api/health`, `POST /api/backup/trigger`).
+- **`backend/backup_sync/`** - serviço Docker `backup_sync` (supercronic + `backup_sync.sh`) e `backup.conf`.
 
 ## Local development
 
