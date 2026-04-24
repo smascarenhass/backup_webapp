@@ -5,16 +5,23 @@
       "path": "/hdds/main/documents/docs/",
       "createdAt": "2026-04-22T20:23:21.433Z",
       "lastBackupAt": "2026-04-24T14:45:44.914Z"
+    },
+    {
+      "id": "93f6c280-4c30-4885-9f92-51e030c121ea",
+      "path": "/hdds/main/documents/images",
+      "createdAt": "2026-04-24T20:44:52.793Z",
+      "lastBackupAt": "2026-04-24T20:44:56.701Z"
     }
   ],
   "backupHistory": [
     {
-      "id": "3cc1a0fe-6657-45b8-a405-e34a3ceff04d",
-      "folderId": "15f6c728-46d0-4751-b1fa-1e37c9786112",
-      "folderPath": "/hdds/main/documents/docs/",
-      "archivePath": "/hdds/backup/2026-04-24T13-34-30.871Z-_hdds_main_documents_docs_.tar.gz",
-      "sizeBytes": 3295515356,
-      "createdAt": "2026-04-24T14:45:44.914Z",
+      "id": "e8f8e02e-dc98-4056-846e-81967d413c45",
+      "folderId": "93f6c280-4c30-4885-9f92-51e030c121ea",
+      "folderPath": "/hdds/main/documents/images",
+      "archivePath": "/hdds/backup/2026-04-24T20-44-55.948Z-_hdds_main_documents_images.tar.gz",
+      "sizeBytes": 1348211,
+      "durationMs": 751,
+      "createdAt": "2026-04-24T20:44:56.701Z",
       "triggerType": "manual",
       "version": 1
     }
