@@ -1,3 +1,4 @@
+import type { BackupHistoryItem } from "../../services/backupService";
 import type { BackupFoldersController } from "../BackupFolders/controller";
 
 type VerificationsViewProps = {
@@ -48,8 +49,61 @@ function formatDurationMs(value: number | null) {
   return restMinutes > 0 ? `${hours}h ${restMinutes}m` : `${hours}h`;
 }
 
+function getHistoryGroupMeta(archivePath: string): {
+  groupKey: string;
+  destDir: string;
+  fileName: string;
+} {
+  const norm = archivePath.replace(/\\/g, "/");
+  const lower = norm.toLowerCase();
+  const idx = lower.indexOf("/webapp/");
+  if (idx >= 0) {
+    const tail = norm.slice(idx + 1);
+    const segments = tail.split("/").filter(Boolean);
+    if (
+      segments.length >= 5 &&
+      segments[0].toLowerCase() === "webapp"
+    ) {
+      const y = segments[1];
+      const mo = segments[2];
+      const d = segments[3];
+      const fileName = segments[4];
+      const groupKey = `webapp/${y}/${mo}/${d}`;
+      return { groupKey, destDir: groupKey, fileName };
+    }
+  }
+  const fileName = norm.split("/").pop() || norm;
+  return {
+    groupKey: "__legacy__",
+    destDir: "—",
+    fileName,
+  };
+}
+
+function groupHistoryByArchiveDate(history: BackupHistoryItem[]) {
+  const map = new Map<string, BackupHistoryItem[]>();
+  for (const item of history) {
+    const { groupKey } = getHistoryGroupMeta(item.archivePath);
+    const list = map.get(groupKey) ?? [];
+    list.push(item);
+    map.set(groupKey, list);
+  }
+  for (const list of map.values()) {
+    list.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+  const entries = [...map.entries()].sort((a, b) => {
+    if (a[0] === "__legacy__") return 1;
+    if (b[0] === "__legacy__") return -1;
+    const maxA = Math.max(...a[1].map((i) => Date.parse(i.createdAt) || 0));
+    const maxB = Math.max(...b[1].map((i) => Date.parse(i.createdAt) || 0));
+    return maxB - maxA;
+  });
+  return entries;
+}
+
 export function VerificationsView({ controller }: VerificationsViewProps) {
   const { history, loadingHistory, reloadHistory, toHostPath } = controller;
+  const grouped = groupHistoryByArchiveDate(history);
 
   return (
     <div className="mx-auto flex min-h-screen max-w-6xl flex-col gap-6 p-6">
@@ -58,7 +112,8 @@ export function VerificationsView({ controller }: VerificationsViewProps) {
           Verificações
         </h1>
         <p className="mt-1 text-sm text-slate-400">
-          Histórico completo dos backups, com versões por pasta.
+          Histórico dos backups agrupado por pasta de data{" "}
+          <span className="text-slate-500">(webapp/ano/mês/dia em UTC no arquivo)</span>.
         </p>
       </header>
 
@@ -82,35 +137,66 @@ export function VerificationsView({ controller }: VerificationsViewProps) {
         )}
 
         {!loadingHistory && history.length > 0 && (
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-left text-sm">
-              <thead>
-                <tr className="text-slate-500">
-                  <th className="px-2 py-2">Data/Hora</th>
-                  <th className="px-2 py-2">Tipo</th>
-                  <th className="px-2 py-2">Versão</th>
-                  <th className="px-2 py-2">Duração</th>
-                  <th className="px-2 py-2">Pasta</th>
-                  <th className="px-2 py-2">Arquivo</th>
-                  <th className="px-2 py-2 text-right">Tamanho</th>
-                </tr>
-              </thead>
-              <tbody>
-                {history.map((item) => (
-                  <tr key={item.id} className="border-t border-slate-800 text-slate-200">
-                    <td className="px-2 py-2">{formatDate(item.createdAt)}</td>
-                    <td className="px-2 py-2">
-                      {item.triggerType === "automatic" ? "Automático" : "Manual"}
-                    </td>
-                    <td className="px-2 py-2">v{item.version}</td>
-                    <td className="px-2 py-2">{formatDurationMs(item.durationMs)}</td>
-                    <td className="px-2 py-2 font-mono text-xs">{toHostPath(item.folderPath)}</td>
-                    <td className="px-2 py-2 font-mono text-xs">{toHostPath(item.archivePath)}</td>
-                    <td className="px-2 py-2 text-right">{formatBytes(item.sizeBytes)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="flex flex-col gap-8">
+            {grouped.map(([groupKey, items]) => (
+              <div key={groupKey}>
+                <h3 className="mb-2 border-b border-slate-800 pb-2 font-mono text-sm text-slate-300">
+                  {groupKey === "__legacy__"
+                    ? "Raiz / caminhos antigos"
+                    : `${groupKey} · UTC`}
+                </h3>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-left text-sm">
+                    <thead>
+                      <tr className="text-slate-500">
+                        <th className="px-2 py-2">Data/Hora</th>
+                        <th className="px-2 py-2">Tipo</th>
+                        <th className="px-2 py-2">Versão</th>
+                        <th className="px-2 py-2">Duração</th>
+                        <th className="px-2 py-2">Pasta origem</th>
+                        <th className="px-2 py-2">Destino</th>
+                        <th className="px-2 py-2">Arquivo</th>
+                        <th className="px-2 py-2 text-right">Tamanho</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {items.map((item) => {
+                        const meta = getHistoryGroupMeta(item.archivePath);
+                        return (
+                          <tr
+                            key={item.id}
+                            className="border-t border-slate-800 text-slate-200"
+                          >
+                            <td className="px-2 py-2">{formatDate(item.createdAt)}</td>
+                            <td className="px-2 py-2">
+                              {item.triggerType === "automatic"
+                                ? "Automático"
+                                : "Manual"}
+                            </td>
+                            <td className="px-2 py-2">v{item.version}</td>
+                            <td className="px-2 py-2">
+                              {formatDurationMs(item.durationMs)}
+                            </td>
+                            <td className="px-2 py-2 font-mono text-xs">
+                              {toHostPath(item.folderPath)}
+                            </td>
+                            <td className="px-2 py-2 font-mono text-xs">
+                              {meta.destDir}
+                            </td>
+                            <td className="px-2 py-2 font-mono text-xs">
+                              {meta.fileName}
+                            </td>
+                            <td className="px-2 py-2 text-right">
+                              {formatBytes(item.sizeBytes)}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </section>

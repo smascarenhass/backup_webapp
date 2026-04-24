@@ -15,6 +15,7 @@ import {
   addBackupFolder,
   listBackupFolders,
   listBackupHistory,
+  peekNextBackupVersion,
   recordFolderBackup,
   removeBackupHistoryEntries,
   removeBackupFolder,
@@ -207,8 +208,8 @@ app.post("/api/backup/folders", async (req, res) => {
   try {
     const settings = await readBackupSettings();
     const requestedPath = String(req.body?.path ?? "").trim();
-    const resolvedPath = path.resolve(requestedPath);
-    const resolvedMain = path.resolve(settings.mainMountPath || "/");
+    const resolvedPath = normalizeFsPath(requestedPath);
+    const resolvedMain = normalizeFsPath(settings.mainMountPath || "/");
     if (
       !requestedPath ||
       (resolvedPath !== resolvedMain &&
@@ -247,10 +248,68 @@ app.delete("/api/backup/folders/:id", async (req, res) => {
   }
 });
 
-function buildSafeArchiveName(folderPath, stamp) {
-  const normalized = folderPath.replaceAll(path.sep, "_").replaceAll("/", "_");
-  const compact = normalized.replaceAll(/[^a-zA-Z0-9._-]/g, "_").slice(-120);
-  return `${stamp}-${compact || "folder"}.tar.gz`;
+function pad2(n) {
+  return String(n).padStart(2, "0");
+}
+
+/**
+ * Relative path under backup mount: webapp/<UTC-YYYY>/<MM>/<DD>/<slug>-v<ver>_<HHMMSS>.tar.gz
+ */
+function buildWebappArchiveRelPath({ slug, version, now = new Date() }) {
+  const y = now.getUTCFullYear();
+  const mo = pad2(now.getUTCMonth() + 1);
+  const d = pad2(now.getUTCDate());
+  const hh = pad2(now.getUTCHours());
+  const mm = pad2(now.getUTCMinutes());
+  const ss = pad2(now.getUTCSeconds());
+  const safeSlug = slug || "folder";
+  const fileName = `${safeSlug}-v${version}_${hh}${mm}${ss}.tar.gz`;
+  return path.join("webapp", String(y), mo, d, fileName);
+}
+
+function slugifyFolderPath(resolvedFolder, resolvedMainMount) {
+  const folder = path.resolve(resolvedFolder);
+  const main = path.resolve(resolvedMainMount);
+  let rel;
+  if (folder === main) {
+    rel = "_root";
+  } else if (folder.startsWith(`${main}${path.sep}`)) {
+    rel = folder.slice(main.length + 1);
+  } else {
+    rel = path.basename(folder);
+  }
+  const forward = String(rel).replace(/\\/g, "/").replace(/\/{2,}/g, "/");
+  const slug = forward
+    .replace(/\//g, "__")
+    .replace(/[^a-zA-Z0-9._-]/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_|_$/g, "")
+    .slice(0, 80);
+  return slug || "folder";
+}
+
+async function pruneEmptyParentsUpToRoot(deletedFilePath, backupMountRootRaw) {
+  const root = normalizeFsPath(backupMountRootRaw);
+  if (!root) {
+    return;
+  }
+  let dir = path.dirname(deletedFilePath);
+  while (dir.startsWith(`${root}${path.sep}`)) {
+    try {
+      const entries = await readdir(dir);
+      if (entries.length > 0) {
+        break;
+      }
+      await rm(dir, { maxRetries: 0 });
+    } catch {
+      break;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) {
+      break;
+    }
+    dir = parent;
+  }
 }
 
 function average(values) {
@@ -263,6 +322,7 @@ async function ensurePathReadable(targetPath) {
 }
 
 async function enforceRetention({ backupMountPath, maxAgeDays, maxBackups }) {
+  const backupRoot = normalizeFsPath(backupMountPath);
   const history = await listBackupHistory();
   const now = Date.now();
   const maxAgeMs = Math.max(1, maxAgeDays) * 24 * 60 * 60 * 1000;
@@ -294,11 +354,12 @@ async function enforceRetention({ backupMountPath, maxAgeDays, maxBackups }) {
     const entry = byId.get(id);
     if (!entry) continue;
     const archivePath = path.isAbsolute(entry.archivePath)
-      ? entry.archivePath
-      : path.join(backupMountPath, entry.archivePath);
+      ? normalizeFsPath(entry.archivePath)
+      : path.join(backupRoot, entry.archivePath);
     try {
       await rm(archivePath, { force: true });
       removedArchives += 1;
+      await pruneEmptyParentsUpToRoot(archivePath, backupRoot);
     } catch {
       // Ignore deletion failures, keep metadata cleanup below.
     }
@@ -330,9 +391,14 @@ async function executeBackupPipeline({
     if (!settings.mainMountPath || !settings.backupMountPath) {
       throw new Error("Configure main and backup mount paths before triggering backups.");
     }
-    await ensurePathReadable(settings.mainMountPath);
-    await mkdir(settings.backupMountPath, { recursive: true });
-    await ensurePathReadable(settings.backupMountPath);
+    const resolvedMain = normalizeFsPath(settings.mainMountPath);
+    const resolvedBackupMount = normalizeFsPath(settings.backupMountPath);
+    if (!resolvedMain || !resolvedBackupMount) {
+      throw new Error("Configure valid main and backup mount paths before triggering backups.");
+    }
+    await ensurePathReadable(resolvedMain);
+    await mkdir(resolvedBackupMount, { recursive: true });
+    await ensurePathReadable(resolvedBackupMount);
 
     const folders = await listBackupFolders();
     if (!folders.length) {
@@ -355,7 +421,6 @@ async function executeBackupPipeline({
       backupProgress.lastMessage = `Compressing ${folder.path}`;
 
       const resolvedFolder = path.resolve(folder.path);
-      const resolvedMain = path.resolve(settings.mainMountPath);
       if (
         resolvedFolder !== resolvedMain &&
         !resolvedFolder.startsWith(`${resolvedMain}${path.sep}`)
@@ -363,9 +428,14 @@ async function executeBackupPipeline({
         throw new Error(`Folder outside main mount path: ${folder.path}`);
       }
       await ensurePathReadable(resolvedFolder);
-      const stamp = new Date().toISOString().replaceAll(":", "-");
-      const archiveName = buildSafeArchiveName(folder.path, stamp);
-      const archivePath = path.join(settings.backupMountPath, archiveName);
+      const nextVersion = await peekNextBackupVersion(folder.id);
+      const slug = slugifyFolderPath(resolvedFolder, resolvedMain);
+      const archiveRel = buildWebappArchiveRelPath({
+        slug,
+        version: nextVersion,
+      });
+      const archivePath = path.join(resolvedBackupMount, archiveRel);
+      await mkdir(path.dirname(archivePath), { recursive: true });
       const compressStartedAt = Date.now();
       await execFileAsync("tar", ["-czf", archivePath, "-C", resolvedFolder, "."]);
       const compressDurationMs = Date.now() - compressStartedAt;
@@ -377,6 +447,7 @@ async function executeBackupPipeline({
         sizeBytes: archiveStat.size,
         durationMs: compressDurationMs,
         triggerType,
+        version: nextVersion,
       });
       createdArchives.push(archivePath);
       backupProgress.processedFolders += 1;
@@ -386,7 +457,7 @@ async function executeBackupPipeline({
     }
 
     const retentionResult = await enforceRetention({
-      backupMountPath: settings.backupMountPath,
+      backupMountPath: resolvedBackupMount,
       maxAgeDays: settings.retention.maxAgeDays,
       maxBackups: settings.retention.maxBackups,
     });

@@ -12,6 +12,29 @@ Documentação detalhada: [`backend/backup_sync/README.md`](backend/backup_sync/
 - **`backend/`** - Express API (`/api/health`, `POST /api/backup/trigger`).
 - **`backend/backup_sync/`** - serviço Docker `backup_sync` (supercronic + `backup_sync.sh`) e `backup.conf`.
 
+## Layout dos arquivos de backup (API)
+
+Os `.tar.gz` gerados pelo painel ficam sob o `backupMountPath` configurado, em subpastas separadas de outros usos do mesmo volume (ex.: `backup_sync`):
+
+`<backupMountPath>/webapp/<YYYY>/<MM>/<DD>/<slug>-v<versão>_<HHMMSS>.tar.gz`
+
+- **`<YYYY>/<MM>/<DD>` e `_<HHMMSS>`** são em **UTC** (o horário local aparece na UI em Verificações).
+- **`slug`** deriva do caminho da pasta dentro do `mainMountPath` (prefixo removido, `/` viram `__`).
+- A **versão** (`vN`) é incremental por pasta configurada e bate com o campo `version` no histórico.
+
+### Limpeza de `.tar.gz` antigos na raiz do backup
+
+Se ainda existirem arquivos **só no primeiro nível** do diretório de backup (ex.: `/hdds/backup/arquivo.tar.gz`), use o script abaixo **a partir do diretório `backend/`**. Sem `--yes` ele apenas lista (dry-run); com `--yes` apaga. Opcional: `--prune-history` remove entradas do histórico (`data/backup-folders.json`) que apontavam para esses caminhos.
+
+```bash
+cd /hdds/main/documents/projects/backup_webapp/backend
+npm run cleanup:legacy-targz
+npm run cleanup:legacy-targz -- --yes
+npm run cleanup:legacy-targz -- --yes --prune-history
+# ou caminho explícito:
+node scripts/cleanup-legacy-root-targz.mjs --backup-root /hdds/backup --yes
+```
+
 ## Local development
 
 ```bash

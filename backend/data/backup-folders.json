@@ -10,20 +10,20 @@
       "id": "93f6c280-4c30-4885-9f92-51e030c121ea",
       "path": "/hdds/main/documents/images",
       "createdAt": "2026-04-24T20:44:52.793Z",
-      "lastBackupAt": "2026-04-24T20:44:56.701Z"
+      "lastBackupAt": "2026-04-24T21:01:22.411Z"
     }
   ],
   "backupHistory": [
     {
-      "id": "e8f8e02e-dc98-4056-846e-81967d413c45",
+      "id": "38cfc73d-3b01-4abf-ac3d-0c1692834ee8",
       "folderId": "93f6c280-4c30-4885-9f92-51e030c121ea",
       "folderPath": "/hdds/main/documents/images",
-      "archivePath": "/hdds/backup/2026-04-24T20-44-55.948Z-_hdds_main_documents_images.tar.gz",
+      "archivePath": "/hdds/backup/webapp/2026/04/24/documents_images-v2_210121.tar.gz",
       "sizeBytes": 1348211,
-      "durationMs": 751,
-      "createdAt": "2026-04-24T20:44:56.701Z",
+      "durationMs": 568,
+      "createdAt": "2026-04-24T21:01:22.411Z",
       "triggerType": "manual",
-      "version": 1
+      "version": 2
     }
   ]
 }

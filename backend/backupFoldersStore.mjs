@@ -134,6 +134,15 @@ export async function touchBackupFolders(folderIds) {
   return updatedIds;
 }
 
+export async function peekNextBackupVersion(folderId) {
+  const store = await readStore();
+  const lastVersion =
+    store.backupHistory
+      .filter((item) => item.folderId === String(folderId))
+      .reduce((max, item) => Math.max(max, Number(item.version ?? 1)), 0) || 0;
+  return lastVersion + 1;
+}
+
 export async function recordFolderBackup({
   folderId,
   folderPath,
@@ -141,6 +150,7 @@ export async function recordFolderBackup({
   sizeBytes,
   durationMs,
   triggerType,
+  version: forcedVersion,
 }) {
   const store = await readStore();
   const now = new Date().toISOString();
@@ -148,6 +158,10 @@ export async function recordFolderBackup({
     store.backupHistory
       .filter((item) => item.folderId === String(folderId))
       .reduce((max, item) => Math.max(max, Number(item.version ?? 1)), 0) || 0;
+  const nextVersion =
+    forcedVersion != null && Number.isFinite(Number(forcedVersion))
+      ? Math.max(1, Math.round(Number(forcedVersion)))
+      : lastVersion + 1;
   const entry = {
     id: randomUUID(),
     folderId: String(folderId),
@@ -160,7 +174,7 @@ export async function recordFolderBackup({
         : null,
     createdAt: now,
     triggerType: triggerType === "automatic" ? "automatic" : "manual",
-    version: lastVersion + 1,
+    version: nextVersion,
   };
   const updatedFolders = store.folders.map((folder) =>
     folder.id === folderId ? { ...folder, lastBackupAt: now } : folder,
