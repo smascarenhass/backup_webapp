@@ -4,5 +4,9 @@
   "retention": {
     "maxAgeDays": 30,
     "maxBackups": 1
+  },
+  "autoBackup": {
+    "enabled": false,
+    "intervalMinutes": 60
   }
 }

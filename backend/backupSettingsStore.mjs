@@ -11,6 +11,10 @@ const defaultSettings = {
     maxAgeDays: 30,
     maxBackups: 30,
   },
+  autoBackup: {
+    enabled: false,
+    intervalMinutes: 60,
+  },
 };
 
 function normalizePath(value) {
@@ -31,6 +35,10 @@ function normalizeSettings(raw) {
     source.retention && typeof source.retention === "object"
       ? source.retention
       : {};
+  const autoBackup =
+    source.autoBackup && typeof source.autoBackup === "object"
+      ? source.autoBackup
+      : {};
   return {
     mainMountPath: normalizePath(source.mainMountPath),
     backupMountPath: normalizePath(source.backupMountPath),
@@ -42,6 +50,13 @@ function normalizeSettings(raw) {
       maxBackups: normalizePositiveInt(
         retention.maxBackups,
         defaultSettings.retention.maxBackups,
+      ),
+    },
+    autoBackup: {
+      enabled: Boolean(autoBackup.enabled),
+      intervalMinutes: normalizePositiveInt(
+        autoBackup.intervalMinutes,
+        defaultSettings.autoBackup.intervalMinutes,
       ),
     },
   };

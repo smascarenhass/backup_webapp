@@ -35,6 +35,7 @@ export type TriggerBackupResponse = {
   processedFolders: number;
   removedByRetention?: number;
   archives?: string[];
+  triggerType?: "manual" | "automatic";
 };
 
 export async function triggerBackup(
@@ -114,6 +115,10 @@ export type BackupSettings = {
     maxAgeDays: number;
     maxBackups: number;
   };
+  autoBackup: {
+    enabled: boolean;
+    intervalMinutes: number;
+  };
 };
 
 type BackupSettingsResponse = {
@@ -154,6 +159,38 @@ export type BackupStorageMetrics = {
   estimatedDaysFit: number | null;
 };
 
+export type BackupProgress = {
+  running: boolean;
+  triggerType: "manual" | "automatic" | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  totalFolders: number;
+  processedFolders: number;
+  currentFolderPath: string | null;
+  progressPct: number;
+  lastMessage: string;
+  lastError: string | null;
+};
+
+type BackupProgressResponse = {
+  progress: BackupProgress;
+};
+
+export type BackupHistoryItem = {
+  id: string;
+  folderId: string;
+  folderPath: string;
+  archivePath: string;
+  sizeBytes: number;
+  createdAt: string;
+  triggerType: "manual" | "automatic";
+  version: number;
+};
+
+type BackupHistoryResponse = {
+  history: BackupHistoryItem[];
+};
+
 type BackupStorageMetricsResponse = {
   metrics: BackupStorageMetrics;
 };
@@ -165,6 +202,24 @@ export async function fetchBackupStorageMetrics(): Promise<BackupStorageMetrics>
   }
   const data = await parseJson<BackupStorageMetricsResponse>(res);
   return data.metrics;
+}
+
+export async function fetchBackupProgress(): Promise<BackupProgress> {
+  const res = await fetch(`${API_BASE}/api/backup/progress`);
+  if (!res.ok) {
+    throw new Error(`Progress fetch failed: HTTP ${res.status}`);
+  }
+  const data = await parseJson<BackupProgressResponse>(res);
+  return data.progress;
+}
+
+export async function fetchBackupHistory(): Promise<BackupHistoryItem[]> {
+  const res = await fetch(`${API_BASE}/api/backup/history`);
+  if (!res.ok) {
+    throw new Error(`History fetch failed: HTTP ${res.status}`);
+  }
+  const data = await parseJson<BackupHistoryResponse>(res);
+  return data.history;
 }
 
 export async function searchDirectories(

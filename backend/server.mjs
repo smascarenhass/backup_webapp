@@ -29,6 +29,20 @@ const execFileAsync = promisify(execFile);
 const app = express();
 const port = Number(process.env.PORT ?? "8011");
 const browseBasePath = process.env.BROWSE_BASE_PATH ?? "/hdds/main";
+const autoBackupTickMs = Number(process.env.AUTO_BACKUP_TICK_MS ?? "30000");
+
+const backupProgress = {
+  running: false,
+  triggerType: null,
+  startedAt: null,
+  finishedAt: null,
+  totalFolders: 0,
+  processedFolders: 0,
+  currentFolderPath: null,
+  progressPct: 0,
+  lastMessage: "Idle",
+  lastError: null,
+};
 
 app.use(cors());
 app.use(express.json());
@@ -273,6 +287,111 @@ async function enforceRetention({ backupMountPath, maxAgeDays, maxBackups }) {
   return { removedArchives };
 }
 
+async function executeBackupPipeline({
+  triggerType,
+  requestedFolderIds,
+}) {
+  if (backupProgress.running) {
+    throw new Error("Backup already running.");
+  }
+  backupProgress.running = true;
+  backupProgress.triggerType = triggerType;
+  backupProgress.startedAt = new Date().toISOString();
+  backupProgress.finishedAt = null;
+  backupProgress.totalFolders = 0;
+  backupProgress.processedFolders = 0;
+  backupProgress.currentFolderPath = null;
+  backupProgress.progressPct = 0;
+  backupProgress.lastMessage = "Preparing backup pipeline...";
+  backupProgress.lastError = null;
+
+  try {
+    const settings = await readBackupSettings();
+    if (!settings.mainMountPath || !settings.backupMountPath) {
+      throw new Error("Configure main and backup mount paths before triggering backups.");
+    }
+    await ensurePathReadable(settings.mainMountPath);
+    await mkdir(settings.backupMountPath, { recursive: true });
+    await ensurePathReadable(settings.backupMountPath);
+
+    const folders = await listBackupFolders();
+    if (!folders.length) {
+      throw new Error("No folders configured for backup.");
+    }
+    const targetFolderIds =
+      requestedFolderIds.length > 0
+        ? requestedFolderIds
+        : folders.map((folder) => folder.id);
+
+    const targetFolders = folders.filter((folder) => targetFolderIds.includes(folder.id));
+    backupProgress.totalFolders = targetFolders.length;
+    if (!targetFolders.length) {
+      throw new Error("No matching folders selected for backup.");
+    }
+
+    const createdArchives = [];
+    for (const folder of targetFolders) {
+      backupProgress.currentFolderPath = folder.path;
+      backupProgress.lastMessage = `Compressing ${folder.path}`;
+
+      const resolvedFolder = path.resolve(folder.path);
+      const resolvedMain = path.resolve(settings.mainMountPath);
+      if (
+        resolvedFolder !== resolvedMain &&
+        !resolvedFolder.startsWith(`${resolvedMain}${path.sep}`)
+      ) {
+        throw new Error(`Folder outside main mount path: ${folder.path}`);
+      }
+      await ensurePathReadable(resolvedFolder);
+      const stamp = new Date().toISOString().replaceAll(":", "-");
+      const archiveName = buildSafeArchiveName(folder.path, stamp);
+      const archivePath = path.join(settings.backupMountPath, archiveName);
+      await execFileAsync("tar", ["-czf", archivePath, "-C", resolvedFolder, "."]);
+      const archiveStat = await stat(archivePath);
+      await recordFolderBackup({
+        folderId: folder.id,
+        folderPath: folder.path,
+        archivePath,
+        sizeBytes: archiveStat.size,
+        triggerType,
+      });
+      createdArchives.push(archivePath);
+      backupProgress.processedFolders += 1;
+      backupProgress.progressPct = Math.round(
+        (backupProgress.processedFolders / backupProgress.totalFolders) * 100,
+      );
+    }
+
+    const retentionResult = await enforceRetention({
+      backupMountPath: settings.backupMountPath,
+      maxAgeDays: settings.retention.maxAgeDays,
+      maxBackups: settings.retention.maxBackups,
+    });
+
+    backupProgress.lastMessage = `Backup finished (${createdArchives.length} folders).`;
+    return {
+      ok: true,
+      message: `Backup finished for ${createdArchives.length} folder(s).`,
+      processedFolders: createdArchives.length,
+      removedByRetention: retentionResult.removedArchives,
+      archives: createdArchives,
+      triggerType,
+    };
+  } finally {
+    backupProgress.running = false;
+    backupProgress.finishedAt = new Date().toISOString();
+    backupProgress.currentFolderPath = null;
+    if (backupProgress.progressPct < 100 && !backupProgress.lastError) {
+      backupProgress.progressPct =
+        backupProgress.totalFolders > 0
+          ? Math.round(
+              (backupProgress.processedFolders / backupProgress.totalFolders) * 100,
+            )
+          : 0;
+    }
+  }
+}
+
 app.get("/api/backup/storage-metrics", async (_req, res) => {
   try {
     const settings = await readBackupSettings();
@@ -324,75 +443,38 @@ app.get("/api/backup/storage-metrics", async (_req, res) => {
   }
 });
 
+app.get("/api/backup/history", async (_req, res) => {
+  try {
+    const history = await listBackupHistory();
+    const sorted = [...history].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return res.json({ history: sorted });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return res.status(500).json({
+      message: "Failed to load backup history.",
+      detail: msg,
+    });
+  }
+});
+
+app.get("/api/backup/progress", (_req, res) => {
+  return res.json({ progress: backupProgress });
+});
+
 app.post("/api/backup/trigger", async (req, res) => {
   try {
-    const settings = await readBackupSettings();
-    if (!settings.mainMountPath || !settings.backupMountPath) {
-      return res.status(400).json({
-        ok: false,
-        message: "Configure main and backup mount paths before triggering backups.",
-      });
-    }
-    await ensurePathReadable(settings.mainMountPath);
-    await mkdir(settings.backupMountPath, { recursive: true });
-    await ensurePathReadable(settings.backupMountPath);
-
-    const folders = await listBackupFolders();
-    if (!folders.length) {
-      return res.status(400).json({
-        ok: false,
-        message: "No folders configured for backup.",
-      });
-    }
     const requestedFolderIds = Array.isArray(req.body?.folderIds)
       ? req.body.folderIds.map((id) => String(id))
       : [];
-    const targetFolderIds =
-      requestedFolderIds.length > 0
-        ? requestedFolderIds
-        : folders.map((folder) => folder.id);
-
-    const targetFolders = folders.filter((folder) => targetFolderIds.includes(folder.id));
-    const createdArchives = [];
-    for (const folder of targetFolders) {
-      const resolvedFolder = path.resolve(folder.path);
-      const resolvedMain = path.resolve(settings.mainMountPath);
-      if (
-        resolvedFolder !== resolvedMain &&
-        !resolvedFolder.startsWith(`${resolvedMain}${path.sep}`)
-      ) {
-        throw new Error(`Folder outside main mount path: ${folder.path}`);
-      }
-      await ensurePathReadable(resolvedFolder);
-      const stamp = new Date().toISOString().replaceAll(":", "-");
-      const archiveName = buildSafeArchiveName(folder.path, stamp);
-      const archivePath = path.join(settings.backupMountPath, archiveName);
-      await execFileAsync("tar", ["-czf", archivePath, "-C", resolvedFolder, "."]);
-      const archiveStat = await stat(archivePath);
-      await recordFolderBackup({
-        folderId: folder.id,
-        folderPath: folder.path,
-        archivePath,
-        sizeBytes: archiveStat.size,
-      });
-      createdArchives.push(archivePath);
-    }
-
-    const retentionResult = await enforceRetention({
-      backupMountPath: settings.backupMountPath,
-      maxAgeDays: settings.retention.maxAgeDays,
-      maxBackups: settings.retention.maxBackups,
+    const result = await executeBackupPipeline({
+      triggerType: "manual",
+      requestedFolderIds,
     });
-
-    res.json({
-      ok: true,
-      message: `Backup finished for ${createdArchives.length} folder(s).`,
-      processedFolders: createdArchives.length,
-      removedByRetention: retentionResult.removedArchives,
-      archives: createdArchives,
-    });
+    res.json(result);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    backupProgress.lastError = msg;
+    backupProgress.lastMessage = "Backup failed.";
     res.status(500).json({
       ok: false,
       message: "Failed to execute compressed backup pipeline.",
@@ -400,6 +482,35 @@ app.post("/api/backup/trigger", async (req, res) => {
     });
   }
 });
+
+setInterval(async () => {
+  if (backupProgress.running) {
+    return;
+  }
+  try {
+    const settings = await readBackupSettings();
+    if (!settings.autoBackup?.enabled) {
+      return;
+    }
+    const intervalMinutes = Math.max(1, Number(settings.autoBackup.intervalMinutes ?? 60));
+    const lastFinishedAtMs = backupProgress.finishedAt
+      ? Date.parse(backupProgress.finishedAt)
+      : 0;
+    const elapsedMs = Date.now() - lastFinishedAtMs;
+    const neededMs = intervalMinutes * 60 * 1000;
+    if (lastFinishedAtMs > 0 && elapsedMs < neededMs) {
+      return;
+    }
+    await executeBackupPipeline({
+      triggerType: "automatic",
+      requestedFolderIds: [],
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    backupProgress.lastError = msg;
+    backupProgress.lastMessage = "Automatic backup failed.";
+  }
+}, autoBackupTickMs);
 
 app.listen(port, "0.0.0.0", () => {
   console.log(`backup-api listening on ${port}`);

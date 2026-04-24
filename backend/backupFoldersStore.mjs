@@ -45,6 +45,9 @@ async function readStore() {
             archivePath: normalizeFolderPath(item.archivePath),
             sizeBytes: Number(item.sizeBytes ?? 0),
             createdAt: String(item.createdAt ?? ""),
+            triggerType:
+              item.triggerType === "automatic" ? "automatic" : "manual",
+            version: Number(item.version ?? 1),
           }))
         : [],
     };
@@ -127,9 +130,19 @@ export async function touchBackupFolders(folderIds) {
   return updatedIds;
 }
 
-export async function recordFolderBackup({ folderId, folderPath, archivePath, sizeBytes }) {
+export async function recordFolderBackup({
+  folderId,
+  folderPath,
+  archivePath,
+  sizeBytes,
+  triggerType,
+}) {
   const store = await readStore();
   const now = new Date().toISOString();
+  const lastVersion =
+    store.backupHistory
+      .filter((item) => item.folderId === String(folderId))
+      .reduce((max, item) => Math.max(max, Number(item.version ?? 1)), 0) || 0;
   const entry = {
     id: randomUUID(),
     folderId: String(folderId),
@@ -137,6 +150,8 @@ export async function recordFolderBackup({ folderId, folderPath, archivePath, si
     archivePath: normalizeFolderPath(archivePath),
     sizeBytes: Math.max(0, Number(sizeBytes ?? 0)),
     createdAt: now,
+    triggerType: triggerType === "automatic" ? "automatic" : "manual",
+    version: lastVersion + 1,
   };
   const updatedFolders = store.folders.map((folder) =>
     folder.id === folderId ? { ...folder, lastBackupAt: now } : folder,
@@ -146,6 +161,17 @@ export async function recordFolderBackup({ folderId, folderPath, archivePath, si
     backupHistory: [...store.backupHistory, entry],
   });
   return entry;
+}
+
+export async function listBackupHistoryByFolder() {
+  const store = await readStore();
+  const grouped = new Map();
+  for (const item of store.backupHistory) {
+    const current = grouped.get(item.folderId) ?? [];
+    current.push(item);
+    grouped.set(item.folderId, current);
+  }
+  return grouped;
 }
 
 export async function removeBackupHistoryEntries(entryIds) {

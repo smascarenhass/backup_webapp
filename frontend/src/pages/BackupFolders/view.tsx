@@ -1,4 +1,4 @@
-import { useBackupFoldersController } from "./controller";
+import type { BackupFoldersController } from "./controller";
 
 function formatDate(value: string | null) {
   if (!value) {
@@ -14,17 +14,16 @@ function formatDate(value: string | null) {
   }).format(date);
 }
 
-export function BackupFoldersView() {
+type BackupFoldersViewProps = {
+  controller: BackupFoldersController;
+};
+
+export function BackupFoldersView({ controller }: BackupFoldersViewProps) {
   const {
     health,
     loadingHealth,
     folders,
     loadingFolders,
-    settings,
-    settingsForm,
-    savingSettings,
-    metrics,
-    loadingMetrics,
     pathInput,
     setPathInput,
     directorySuggestions,
@@ -36,11 +35,10 @@ export function BackupFoldersView() {
     allSelected,
     hasFolders,
     busy,
+    progress,
     message,
     error,
     addFolder,
-    updateSettingsField,
-    saveSettings,
     selectDirectorySuggestion,
     openDirectorySuggestions,
     clearDirectorySuggestions,
@@ -53,22 +51,7 @@ export function BackupFoldersView() {
     reload,
     triggerLabel,
     toHostPath,
-    toRuntimePath,
-  } = useBackupFoldersController();
-
-  const formatBytes = (value: number | null | undefined) => {
-    if (!value || value <= 0) {
-      return "0 B";
-    }
-    const units = ["B", "KB", "MB", "GB", "TB"];
-    let current = value;
-    let idx = 0;
-    while (current >= 1024 && idx < units.length - 1) {
-      current /= 1024;
-      idx += 1;
-    }
-    return `${current.toFixed(current >= 10 || idx === 0 ? 0 : 1)} ${units[idx]}`;
-  };
+  } = controller;
 
   return (
     <div className="mx-auto flex min-h-screen max-w-4xl flex-col gap-6 p-6">
@@ -96,118 +79,41 @@ export function BackupFoldersView() {
 
       <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-5 shadow-lg">
         <h2 className="text-sm font-medium uppercase tracking-wide text-slate-500">
-          Armazenamento e retenção
+          Progresso do backup (manual e automático)
         </h2>
-        <div className="mt-3 grid gap-3 md:grid-cols-2">
-          <label className="text-sm text-slate-300">
-            HD principal (mount path)
-            <input
-              type="text"
-              value={toHostPath(settingsForm.mainMountPath)}
-              onChange={(event) =>
-                updateSettingsField(
-                  "mainMountPath",
-                  toRuntimePath(event.target.value),
-                )
-              }
-              className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-emerald-600"
-              placeholder="/hdds/main/disco-principal"
-            />
-          </label>
-          <label className="text-sm text-slate-300">
-            HD backup (mount path)
-            <input
-              type="text"
-              value={toHostPath(settingsForm.backupMountPath)}
-              onChange={(event) =>
-                updateSettingsField(
-                  "backupMountPath",
-                  toRuntimePath(event.target.value),
-                )
-              }
-              className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-emerald-600"
-              placeholder="/hdds/backup/disco-backup"
-            />
-          </label>
-          <label className="text-sm text-slate-300">
-            Retenção máxima (dias)
-            <input
-              type="number"
-              min={1}
-              value={settingsForm.maxAgeDays}
-              onChange={(event) =>
-                updateSettingsField("maxAgeDays", event.target.value)
-              }
-              className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-emerald-600"
-            />
-          </label>
-          <label className="text-sm text-slate-300">
-            Retenção máxima (quantidade)
-            <input
-              type="number"
-              min={1}
-              value={settingsForm.maxBackups}
-              onChange={(event) =>
-                updateSettingsField("maxBackups", event.target.value)
-              }
-              className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-emerald-600"
-            />
-          </label>
-        </div>
-        <button
-          type="button"
-          disabled={savingSettings}
-          onClick={() => void saveSettings()}
-          className="mt-4 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-500 disabled:opacity-50"
-        >
-          {savingSettings ? "Salvando..." : "Salvar configuração"}
-        </button>
-        <p className="mt-2 text-xs text-slate-400">
-          Base atual para seleção de pastas:{" "}
-          <code className="rounded bg-slate-800 px-1 py-0.5">
-            {toHostPath(settings?.mainMountPath) || "-"}
-          </code>
-        </p>
-      </section>
-
-      <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-5 shadow-lg">
-        <h2 className="text-sm font-medium uppercase tracking-wide text-slate-500">
-          Perspectiva de persistência
-        </h2>
-        {loadingMetrics && <p className="mt-3 text-slate-400">Carregando métricas...</p>}
-        {!loadingMetrics && metrics && (
-          <dl className="mt-3 grid gap-2 text-sm">
-            <div className="flex justify-between gap-3">
-              <dt className="text-slate-500">Espaço livre no HD backup</dt>
-              <dd className="text-slate-100">{formatBytes(metrics.freeBytes)}</dd>
+        {!progress && <p className="mt-3 text-slate-400">Carregando progresso...</p>}
+        {progress && (
+          <div className="mt-3 space-y-2 text-sm">
+            <div className="flex justify-between text-slate-300">
+              <span>
+                Tipo:{" "}
+                {progress.triggerType === "automatic"
+                  ? "Automático"
+                  : progress.triggerType === "manual"
+                    ? "Manual"
+                    : "-"}
+              </span>
+              <span className="font-medium">
+                {progress.progressPct}% ·{" "}
+                {progress.processedFolders}/{progress.totalFolders} pastas
+              </span>
             </div>
-            <div className="flex justify-between gap-3">
-              <dt className="text-slate-500">Tamanho total dos backups</dt>
-              <dd className="text-slate-100">{formatBytes(metrics.totalBackupsSizeBytes)}</dd>
+            <div className="h-2 w-full rounded bg-slate-800">
+              <div
+                className="h-2 rounded bg-emerald-500 transition-all"
+                style={{ width: `${Math.max(0, Math.min(100, progress.progressPct))}%` }}
+              />
             </div>
-            <div className="flex justify-between gap-3">
-              <dt className="text-slate-500">Média por backup</dt>
-              <dd className="text-slate-100">
-                {metrics.avgBackupSizeBytes
-                  ? formatBytes(metrics.avgBackupSizeBytes)
-                  : "Histórico insuficiente"}
-              </dd>
-            </div>
-            <div className="flex justify-between gap-3">
-              <dt className="text-slate-500">Estimativa de ciclos possíveis</dt>
-              <dd className="text-slate-100">
-                {metrics.estimatedBackupsFit ?? "Histórico insuficiente"}
-              </dd>
-            </div>
-            <div className="flex justify-between gap-3">
-              <dt className="text-slate-500">Estimativa de dias</dt>
-              <dd className="text-slate-100">
-                {metrics.estimatedDaysFit
-                  ? `${metrics.estimatedDaysFit.toFixed(1)} dias`
-                  : "Histórico insuficiente"}
-              </dd>
-            </div>
-          </dl>
+            <p className="text-slate-300">{progress.lastMessage}</p>
+            {progress.currentFolderPath && (
+              <p className="font-mono text-xs text-slate-400">
+                Pasta atual: {toHostPath(progress.currentFolderPath)}
+              </p>
+            )}
+            {progress.lastError && (
+              <p className="text-red-300">Erro recente: {progress.lastError}</p>
+            )}
+          </div>
         )}
       </section>
 

@@ -19,6 +19,8 @@ export function useBackupFoldersController() {
     backupMountPath: "",
     maxAgeDays: "30",
     maxBackups: "30",
+    autoBackupEnabled: false,
+    autoBackupIntervalMinutes: "60",
   });
   const [savingSettings, setSavingSettings] = useState(false);
   const [metrics, setMetrics] = useState<backupService.BackupStorageMetrics | null>(null);
@@ -32,6 +34,9 @@ export function useBackupFoldersController() {
   const [isSuggestionsOpen, setIsSuggestionsOpen] = useState(false);
   const [selectedFolderIds, setSelectedFolderIds] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState<backupService.BackupProgress | null>(null);
+  const [history, setHistory] = useState<backupService.BackupHistoryItem[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const suggestionRequestIdRef = useRef(0);
@@ -99,6 +104,10 @@ export function useBackupFoldersController() {
         backupMountPath: nextSettings.backupMountPath,
         maxAgeDays: String(nextSettings.retention.maxAgeDays),
         maxBackups: String(nextSettings.retention.maxBackups),
+        autoBackupEnabled: Boolean(nextSettings.autoBackup?.enabled),
+        autoBackupIntervalMinutes: String(
+          nextSettings.autoBackup?.intervalMinutes ?? 60,
+        ),
       });
     } catch (err) {
       setError(getErrorMessage(err, "Failed to load backup settings."));
@@ -117,9 +126,44 @@ export function useBackupFoldersController() {
     }
   }, []);
 
+  const loadProgress = useCallback(async () => {
+    try {
+      const nextProgress = await backupService.fetchBackupProgress();
+      setProgress(nextProgress);
+    } catch {
+      setProgress(null);
+    }
+  }, []);
+
+  const loadHistory = useCallback(async () => {
+    setLoadingHistory(true);
+    try {
+      const items = await backupService.fetchBackupHistory();
+      setHistory(items);
+    } catch (err) {
+      setError(getErrorMessage(err, "Failed to load backup history."));
+    } finally {
+      setLoadingHistory(false);
+    }
+  }, []);
+
   useEffect(() => {
-    void Promise.all([loadHealth(), loadFolders(), loadSettings(), loadMetrics()]);
-  }, [loadHealth, loadFolders, loadMetrics, loadSettings]);
+    void Promise.all([
+      loadHealth(),
+      loadFolders(),
+      loadSettings(),
+      loadMetrics(),
+      loadProgress(),
+      loadHistory(),
+    ]);
+  }, [loadHealth, loadFolders, loadHistory, loadMetrics, loadProgress, loadSettings]);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      void Promise.all([loadProgress(), loadHistory()]);
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [loadHistory, loadProgress]);
 
   useEffect(() => {
     const trimmed = pathInput.trim();
@@ -276,7 +320,7 @@ export function useBackupFoldersController() {
     setMessage(null);
     try {
       const response = await backupService.triggerBackup(selectedFolderIds);
-      await Promise.all([loadFolders(), loadMetrics()]);
+      await Promise.all([loadFolders(), loadMetrics(), loadProgress(), loadHistory()]);
       setMessage(
         `${response.message} Processed folders: ${response.processedFolders}. Removed by retention: ${
           response.removedByRetention ?? 0
@@ -287,14 +331,26 @@ export function useBackupFoldersController() {
     } finally {
       setBusy(false);
     }
-  }, [loadFolders, loadMetrics, selectedFolderIds]);
+  }, [loadFolders, loadHistory, loadMetrics, loadProgress, selectedFolderIds]);
 
   const updateSettingsField = useCallback(
-    (field: "mainMountPath" | "backupMountPath" | "maxAgeDays" | "maxBackups", value: string) => {
+    (
+      field:
+        | "mainMountPath"
+        | "backupMountPath"
+        | "maxAgeDays"
+        | "maxBackups"
+        | "autoBackupIntervalMinutes",
+      value: string,
+    ) => {
       setSettingsForm((current) => ({ ...current, [field]: value }));
     },
     [],
   );
+
+  const setAutoBackupEnabled = useCallback((enabled: boolean) => {
+    setSettingsForm((current) => ({ ...current, autoBackupEnabled: enabled }));
+  }, []);
 
   const saveSettings = useCallback(async () => {
     setSavingSettings(true);
@@ -308,6 +364,13 @@ export function useBackupFoldersController() {
           maxAgeDays: Number.parseInt(settingsForm.maxAgeDays, 10),
           maxBackups: Number.parseInt(settingsForm.maxBackups, 10),
         },
+        autoBackup: {
+          enabled: settingsForm.autoBackupEnabled,
+          intervalMinutes: Number.parseInt(
+            settingsForm.autoBackupIntervalMinutes,
+            10,
+          ),
+        },
       };
       const saved = await backupService.updateBackupSettings(normalized);
       setSettings(saved);
@@ -316,15 +379,17 @@ export function useBackupFoldersController() {
         backupMountPath: saved.backupMountPath,
         maxAgeDays: String(saved.retention.maxAgeDays),
         maxBackups: String(saved.retention.maxBackups),
+        autoBackupEnabled: Boolean(saved.autoBackup?.enabled),
+        autoBackupIntervalMinutes: String(saved.autoBackup?.intervalMinutes ?? 60),
       });
-      await Promise.all([loadMetrics(), loadFolders()]);
+      await Promise.all([loadMetrics(), loadFolders(), loadProgress(), loadHistory()]);
       setMessage("Configurações de armazenamento salvas.");
     } catch (err) {
       setError(getErrorMessage(err, "Failed to save backup settings."));
     } finally {
       setSavingSettings(false);
     }
-  }, [loadFolders, loadMetrics, settingsForm]);
+  }, [loadFolders, loadHistory, loadMetrics, loadProgress, settingsForm]);
 
   const toggleFolderSelection = useCallback((id: string) => {
     setSelectedFolderIds((current) =>
@@ -406,10 +471,14 @@ export function useBackupFoldersController() {
     allSelected,
     hasFolders,
     busy,
+    progress,
+    history,
+    loadingHistory,
     message,
     error,
     addFolder,
     updateSettingsField,
+    setAutoBackupEnabled,
     saveSettings,
     selectDirectorySuggestion,
     openDirectorySuggestions,
@@ -424,5 +493,8 @@ export function useBackupFoldersController() {
     triggerLabel,
     toHostPath,
     toRuntimePath,
+    reloadHistory: loadHistory,
   };
 }
+
+export type BackupFoldersController = ReturnType<typeof useBackupFoldersController>;
