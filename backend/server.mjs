@@ -96,9 +96,23 @@ function isPathInsideBase(targetPath, basePath) {
   );
 }
 
-function parseDirectoryQuery(rawQuery, basePath) {
+function normalizeFsPath(value) {
+  const trimmed = String(value ?? "").trim();
+  if (!trimmed) {
+    return "";
+  }
+  const withForwardSlashes = trimmed.replace(/\\/g, "/");
+  const collapsed = withForwardSlashes.replace(/\/{2,}/g, "/");
+  return path.resolve(collapsed);
+}
+
+function parseDirectoryQuery(rawQuery, basePathRaw) {
+  const basePath = normalizeFsPath(basePathRaw);
+  if (!basePath) {
+    return { error: "Base path is not configured." };
+  }
   const query = typeof rawQuery === "string" ? rawQuery.trim() : "";
-  const normalizedQuery = query.replace(/\\/g, "/");
+  const normalizedQuery = String(query).replace(/\\/g, "/").replace(/\/{2,}/g, "/");
   const effectiveInput =
     normalizedQuery.length === 0
       ? basePath
@@ -140,7 +154,9 @@ app.get("/api/fs/directories", async (req, res) => {
       ? Math.min(parsedLimit, 100)
       : 20;
   const settings = await readBackupSettings();
-  const allowedBasePath = settings.mainMountPath || browseBasePath;
+  const allowedBasePath = normalizeFsPath(
+    settings.mainMountPath || browseBasePath,
+  );
   const queryData = parseDirectoryQuery(req.query.q, allowedBasePath);
 
   if ("error" in queryData) {

@@ -5,6 +5,20 @@ function getErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
 }
 
+function normalizeMountPath(value: string | null | undefined, fallback: string) {
+  const trimmed = String(value ?? "").trim();
+  const base = trimmed || fallback;
+  const forward = base.replace(/\\/g, "/").replace(/\/{2,}/g, "/");
+  return forward.replace(/\/+$/, "") || "/";
+}
+
+function withTrailingSlash(dirPath: string) {
+  if (!dirPath.endsWith("/")) {
+    return `${dirPath}/`;
+  }
+  return dirPath;
+}
+
 export function useBackupFoldersController() {
   const hostBackendBasePath =
     import.meta.env.VITE_HOST_BACKEND_BASE_PATH ??
@@ -44,7 +58,10 @@ export function useBackupFoldersController() {
   const suggestionRequestIdRef = useRef(0);
   const processesHydratedRef = useRef(false);
 
-  const allowedBasePath = settings?.mainMountPath || "/hdds/main";
+  const allowedBasePath = useMemo(
+    () => normalizeMountPath(settings?.mainMountPath, "/hdds/main"),
+    [settings?.mainMountPath],
+  );
 
   const loadDirectorySuggestions = useCallback(async (query: string) => {
     const requestId = suggestionRequestIdRef.current + 1;
@@ -201,7 +218,11 @@ export function useBackupFoldersController() {
       return;
     }
 
-    if (trimmed.startsWith("/") && !trimmed.startsWith(allowedBasePath)) {
+    if (
+      trimmed.startsWith("/") &&
+      !trimmed.startsWith(`${allowedBasePath}/`) &&
+      trimmed !== allowedBasePath
+    ) {
       setDirectorySuggestions([]);
       setLoadingSuggestions(false);
       setHighlightedSuggestionIndex(-1);
@@ -239,10 +260,15 @@ export function useBackupFoldersController() {
   const openDirectorySuggestions = useCallback(() => {
     setIsSuggestionsOpen(true);
     const current = pathInput.trim();
-    const query = current || `${allowedBasePath}/`;
-    if (query.startsWith("/") && !query.startsWith(allowedBasePath)) {
-      setPathInput(`${allowedBasePath}/`);
-      void loadDirectorySuggestions(`${allowedBasePath}/`);
+    const query = current || withTrailingSlash(allowedBasePath);
+    if (
+      query.startsWith("/") &&
+      !query.startsWith(`${allowedBasePath}/`) &&
+      query !== allowedBasePath
+    ) {
+      const reset = withTrailingSlash(allowedBasePath);
+      setPathInput(reset);
+      void loadDirectorySuggestions(reset);
       return;
     }
     void loadDirectorySuggestions(query);
@@ -284,10 +310,11 @@ export function useBackupFoldersController() {
         clearDirectorySuggestions();
         return true;
       }
-      if (key === "Backspace" && pathInput.endsWith("/") && pathInput !== `${allowedBasePath}/`) {
+      const baseWithSlash = withTrailingSlash(allowedBasePath);
+      if (key === "Backspace" && pathInput.endsWith("/") && pathInput !== baseWithSlash) {
         const parentPath = pathInput.replace(/\/+$/, "");
         const parent = parentPath.slice(0, parentPath.lastIndexOf("/") + 1);
-        if (parent.startsWith(`${allowedBasePath}/`) || parent === `${allowedBasePath}/`) {
+        if (parent.startsWith(`${allowedBasePath}/`) || parent === baseWithSlash) {
           setPathInput(parent);
           void loadDirectorySuggestions(parent);
           return true;
