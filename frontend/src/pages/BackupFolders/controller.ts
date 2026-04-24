@@ -35,11 +35,14 @@ export function useBackupFoldersController() {
   const [selectedFolderIds, setSelectedFolderIds] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<backupService.BackupProgress | null>(null);
+  const [processes, setProcesses] = useState<backupService.BackupProcesses | null>(null);
+  const [loadingProcesses, setLoadingProcesses] = useState(true);
   const [history, setHistory] = useState<backupService.BackupHistoryItem[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const suggestionRequestIdRef = useRef(0);
+  const processesHydratedRef = useRef(false);
 
   const allowedBasePath = settings?.mainMountPath || "/hdds/main";
 
@@ -147,6 +150,24 @@ export function useBackupFoldersController() {
     }
   }, []);
 
+  const loadProcesses = useCallback(async () => {
+    const showSpinner = !processesHydratedRef.current;
+    if (showSpinner) {
+      setLoadingProcesses(true);
+    }
+    try {
+      const snapshot = await backupService.fetchBackupProcesses();
+      setProcesses(snapshot);
+      processesHydratedRef.current = true;
+    } catch {
+      setProcesses(null);
+    } finally {
+      if (showSpinner) {
+        setLoadingProcesses(false);
+      }
+    }
+  }, []);
+
   useEffect(() => {
     void Promise.all([
       loadHealth(),
@@ -154,16 +175,25 @@ export function useBackupFoldersController() {
       loadSettings(),
       loadMetrics(),
       loadProgress(),
+      loadProcesses(),
       loadHistory(),
     ]);
-  }, [loadHealth, loadFolders, loadHistory, loadMetrics, loadProgress, loadSettings]);
+  }, [
+    loadHealth,
+    loadFolders,
+    loadHistory,
+    loadMetrics,
+    loadProcesses,
+    loadProgress,
+    loadSettings,
+  ]);
 
   useEffect(() => {
     const interval = setInterval(() => {
-      void Promise.all([loadProgress(), loadHistory()]);
+      void Promise.all([loadProgress(), loadProcesses(), loadHistory()]);
     }, 2000);
     return () => clearInterval(interval);
-  }, [loadHistory, loadProgress]);
+  }, [loadHistory, loadProcesses, loadProgress]);
 
   useEffect(() => {
     const trimmed = pathInput.trim();
@@ -472,6 +502,8 @@ export function useBackupFoldersController() {
     hasFolders,
     busy,
     progress,
+    processes,
+    loadingProcesses,
     history,
     loadingHistory,
     message,
@@ -494,6 +526,7 @@ export function useBackupFoldersController() {
     toHostPath,
     toRuntimePath,
     reloadHistory: loadHistory,
+    reloadProcesses: loadProcesses,
   };
 }
 

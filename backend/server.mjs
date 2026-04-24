@@ -30,6 +30,10 @@ const app = express();
 const port = Number(process.env.PORT ?? "8011");
 const browseBasePath = process.env.BROWSE_BASE_PATH ?? "/hdds/main";
 const autoBackupTickMs = Number(process.env.AUTO_BACKUP_TICK_MS ?? "30000");
+const backupSyncContainerName =
+  process.env.BACKUP_SYNC_CONTAINER_NAME ??
+  process.env.BACKUP_CONTAINER_NAME ??
+  "backup_sync";
 
 const backupProgress = {
   running: false,
@@ -462,6 +466,136 @@ app.get("/api/backup/history", async (_req, res) => {
 
 app.get("/api/backup/progress", (_req, res) => {
   return res.json({ progress: backupProgress });
+});
+
+function truncateText(value, maxLen) {
+  const text = String(value ?? "");
+  if (text.length <= maxLen) {
+    return text;
+  }
+  return `${text.slice(0, maxLen)}…`;
+}
+
+function isSafeContainerName(name) {
+  return /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/.test(String(name ?? ""));
+}
+
+async function inspectDockerContainer(containerName) {
+  if (!isSafeContainerName(containerName)) {
+    return {
+      status: "invalid_name",
+      containerName,
+      detail: "Invalid container name configuration.",
+    };
+  }
+  try {
+    const { stdout } = await execFileAsync("docker", [
+      "inspect",
+      containerName,
+    ]);
+    const data = JSON.parse(stdout);
+    const info = Array.isArray(data) ? data[0] : data;
+    const state = info?.State ?? {};
+    const health = state?.Health?.Status ?? null;
+    return {
+      status: "ok",
+      containerName,
+      dockerState: String(state.Status ?? "unknown"),
+      startedAt: state.StartedAt ?? null,
+      finishedAt: state.FinishedAt ?? null,
+      exitCode:
+        typeof state.ExitCode === "number" ? state.ExitCode : null,
+      restartCount:
+        typeof info?.RestartCount === "number" ? info.RestartCount : null,
+      healthStatus: health,
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return {
+      status: "unavailable",
+      containerName,
+      detail: truncateText(msg, 500),
+    };
+  }
+}
+
+async function readBackupSyncCronLine(containerName) {
+  if (!isSafeContainerName(containerName)) {
+    return null;
+  }
+  try {
+    const { stdout } = await execFileAsync("docker", [
+      "exec",
+      containerName,
+      "sh",
+      "-lc",
+      "if [ -f /etc/supercronic.cron ]; then cat /etc/supercronic.cron; fi",
+    ]);
+    const line = String(stdout ?? "").trim();
+    return line ? truncateText(line, 4000) : null;
+  } catch {
+    return null;
+  }
+}
+
+app.get("/api/backup/processes", async (_req, res) => {
+  try {
+    const settings = await readBackupSettings();
+    const intervalMinutes = Math.max(
+      1,
+      Number(settings.autoBackup?.intervalMinutes ?? 60),
+    );
+    const intervalMs = intervalMinutes * 60 * 1000;
+    const lastFinishedAtMs = backupProgress.finishedAt
+      ? Date.parse(backupProgress.finishedAt)
+      : NaN;
+    let estimatedNextInternalRunAt = null;
+    let estimatedNextInternalRunNote = null;
+    if (settings.autoBackup?.enabled) {
+      if (Number.isFinite(lastFinishedAtMs) && lastFinishedAtMs > 0) {
+        estimatedNextInternalRunAt = new Date(
+          lastFinishedAtMs + intervalMs,
+        ).toISOString();
+        estimatedNextInternalRunNote =
+          "Estimativa baseada no último término do pipeline interno e no intervalo configurado; o disparo real também depende do tick do servidor.";
+      } else {
+        estimatedNextInternalRunNote =
+          "Auto backup habilitado, mas ainda não há histórico de término neste processo; o primeiro disparo pode ocorrer no próximo tick do servidor.";
+      }
+    } else {
+      estimatedNextInternalRunNote = "Auto backup desativado nas configurações.";
+    }
+
+    const externalInspect = await inspectDockerContainer(backupSyncContainerName);
+    let externalCronLine = null;
+    if (externalInspect.status === "ok" && externalInspect.dockerState === "running") {
+      externalCronLine = await readBackupSyncCronLine(backupSyncContainerName);
+    }
+
+    return res.json({
+      generatedAt: new Date().toISOString(),
+      serverTickMs: autoBackupTickMs,
+      internal: {
+        progress: { ...backupProgress },
+      },
+      schedule: {
+        autoBackupEnabled: Boolean(settings.autoBackup?.enabled),
+        intervalMinutes,
+        estimatedNextInternalRunAt,
+        estimatedNextInternalRunNote,
+      },
+      externalBackupSync: {
+        ...externalInspect,
+        supercronicCronLine: externalCronLine,
+      },
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return res.status(500).json({
+      message: "Failed to load backup processes.",
+      detail: msg,
+    });
+  }
 });
 
 app.post("/api/backup/trigger", async (req, res) => {

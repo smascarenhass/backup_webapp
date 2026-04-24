@@ -1,18 +1,20 @@
 import { useMemo, useState } from "react";
 import { useBackupFoldersController } from "./pages/BackupFolders/controller";
 import { BackupFoldersView } from "./pages/BackupFolders/view";
+import { ProcessesView } from "./pages/Processes/view";
 import { SettingsView } from "./pages/Settings/view";
 import { VerificationsView } from "./pages/Verifications/view";
 
 export default function App() {
   const [activePage, setActivePage] = useState<
-    "backups" | "settings" | "verifications"
+    "backups" | "settings" | "verifications" | "processes"
   >("backups");
   const controller = useBackupFoldersController();
 
   const pageTitle = useMemo(() => {
     if (activePage === "settings") return "Settings";
     if (activePage === "verifications") return "Verificações";
+    if (activePage === "processes") return "Processos";
     return "Backups";
   }, [activePage]);
 
@@ -54,6 +56,17 @@ export default function App() {
           >
             Verificações
           </button>
+          <button
+            type="button"
+            onClick={() => setActivePage("processes")}
+            className={`rounded-lg px-3 py-2 text-left text-sm transition ${
+              activePage === "processes"
+                ? "bg-emerald-700/40 text-emerald-100"
+                : "bg-slate-800 text-slate-200 hover:bg-slate-700"
+            }`}
+          >
+            Processos
+          </button>
         </nav>
       </aside>
 
@@ -66,6 +79,7 @@ export default function App() {
         {activePage === "verifications" && (
           <VerificationsView controller={controller} />
         )}
+        {activePage === "processes" && <ProcessesView controller={controller} />}
       </main>
     </div>
   );

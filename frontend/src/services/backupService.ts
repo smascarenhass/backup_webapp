@@ -223,6 +223,50 @@ export async function fetchBackupHistory(): Promise<BackupHistoryItem[]> {
   return data.history;
 }
 
+export type BackupProcessesExternalInspect =
+  | {
+      status: "ok";
+      containerName: string;
+      dockerState: string;
+      startedAt: string | null;
+      finishedAt: string | null;
+      exitCode: number | null;
+      restartCount: number | null;
+      healthStatus: string | null;
+      supercronicCronLine: string | null;
+    }
+  | {
+      status: "unavailable" | "invalid_name";
+      containerName: string;
+      detail?: string;
+      supercronicCronLine?: string | null;
+    };
+
+export type BackupProcesses = {
+  generatedAt: string;
+  serverTickMs: number;
+  internal: {
+    progress: BackupProgress;
+  };
+  schedule: {
+    autoBackupEnabled: boolean;
+    intervalMinutes: number;
+    estimatedNextInternalRunAt: string | null;
+    estimatedNextInternalRunNote: string | null;
+  };
+  externalBackupSync: BackupProcessesExternalInspect;
+};
+
+type BackupProcessesResponse = BackupProcesses;
+
+export async function fetchBackupProcesses(): Promise<BackupProcesses> {
+  const res = await fetch(`${API_BASE}/api/backup/processes`);
+  if (!res.ok) {
+    throw new Error(`Processes fetch failed: HTTP ${res.status}`);
+  }
+  return parseJson<BackupProcessesResponse>(res);
+}
+
 export async function searchDirectories(
   query: string,
   limit = 20,
