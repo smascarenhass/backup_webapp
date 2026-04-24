@@ -99,6 +99,36 @@ export async function addBackupFolder(rawPath) {
   return folder;
 }
 
+export async function updateBackupFolder(id, rawPath) {
+  const folderPath = normalizeFolderPath(rawPath);
+  if (!folderPath) {
+    throw new Error("Folder path is required.");
+  }
+  const folderId = String(id ?? "").trim();
+  if (!folderId) {
+    throw new Error("Folder id is required.");
+  }
+  const store = await readStore();
+  const idx = store.folders.findIndex((folder) => folder.id === folderId);
+  if (idx < 0) {
+    throw new Error("Folder not found.");
+  }
+  const duplicated = store.folders.some(
+    (item, i) =>
+      i !== idx && item.path.toLowerCase() === folderPath.toLowerCase(),
+  );
+  if (duplicated) {
+    throw new Error("Folder already configured.");
+  }
+  const updated = { ...store.folders[idx], path: folderPath };
+  store.folders[idx] = updated;
+  store.backupHistory = store.backupHistory.map((item) =>
+    item.folderId === folderId ? { ...item, folderPath } : item,
+  );
+  await writeStore(store);
+  return updated;
+}
+
 export async function removeBackupFolder(id) {
   const folderId = String(id ?? "").trim();
   if (!folderId) {

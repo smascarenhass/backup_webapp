@@ -34,7 +34,9 @@ export function useBackupFoldersController() {
     maxAgeDays: "30",
     maxBackups: "30",
     autoBackupEnabled: false,
-    autoBackupIntervalMinutes: "60",
+    autoBackupRunAt: "02:00",
+    autoBackupTimezone: "America/Sao_Paulo",
+    autoBackupFolderIds: [] as string[],
   });
   const [savingSettings, setSavingSettings] = useState(false);
   const [metrics, setMetrics] = useState<backupService.BackupStorageMetrics | null>(null);
@@ -47,6 +49,8 @@ export function useBackupFoldersController() {
   const [highlightedSuggestionIndex, setHighlightedSuggestionIndex] = useState(-1);
   const [isSuggestionsOpen, setIsSuggestionsOpen] = useState(false);
   const [selectedFolderIds, setSelectedFolderIds] = useState<string[]>([]);
+  const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
+  const [editFolderPathDraft, setEditFolderPathDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<backupService.BackupProgress | null>(null);
   const [processes, setProcesses] = useState<backupService.BackupProcesses | null>(null);
@@ -57,6 +61,11 @@ export function useBackupFoldersController() {
   const [error, setError] = useState<string | null>(null);
   const suggestionRequestIdRef = useRef(0);
   const processesHydratedRef = useRef(false);
+
+  const cancelEditingFolder = useCallback(() => {
+    setEditingFolderId(null);
+    setEditFolderPathDraft("");
+  }, []);
 
   const allowedBasePath = useMemo(
     () => normalizeMountPath(settings?.mainMountPath, "/hdds/main"),
@@ -117,17 +126,28 @@ export function useBackupFoldersController() {
 
   const loadSettings = useCallback(async () => {
     try {
-      const nextSettings = await backupService.fetchBackupSettings();
+      const [nextSettings, folderList] = await Promise.all([
+        backupService.fetchBackupSettings(),
+        backupService.listBackupFolders(),
+      ]);
       setSettings(nextSettings);
+      const pad = (n: number) => String(n).padStart(2, "0");
+      const folderIdsForForm =
+        nextSettings.autoBackup.folderIds === null
+          ? folderList.map((f) => f.id)
+          : [...nextSettings.autoBackup.folderIds];
       setSettingsForm({
         mainMountPath: nextSettings.mainMountPath,
         backupMountPath: nextSettings.backupMountPath,
         maxAgeDays: String(nextSettings.retention.maxAgeDays),
         maxBackups: String(nextSettings.retention.maxBackups),
         autoBackupEnabled: Boolean(nextSettings.autoBackup?.enabled),
-        autoBackupIntervalMinutes: String(
-          nextSettings.autoBackup?.intervalMinutes ?? 60,
-        ),
+        autoBackupRunAt: `${pad(nextSettings.autoBackup.runAtHour)}:${pad(
+          nextSettings.autoBackup.runAtMinute,
+        )}`,
+        autoBackupTimezone:
+          nextSettings.autoBackup.timezone ?? "America/Sao_Paulo",
+        autoBackupFolderIds: folderIdsForForm,
       });
     } catch (err) {
       setError(getErrorMessage(err, "Failed to load backup settings."));
@@ -355,21 +375,33 @@ export function useBackupFoldersController() {
     }
   }, [clearDirectorySuggestions, pathInput]);
 
-  const removeFolder = useCallback(async (id: string) => {
-    setBusy(true);
-    setError(null);
-    setMessage(null);
-    try {
-      await backupService.deleteBackupFolder(id);
-      setFolders((current) => current.filter((folder) => folder.id !== id));
-      setSelectedFolderIds((current) => current.filter((folderId) => folderId !== id));
-      setMessage("Folder removed from backup configuration.");
-    } catch (err) {
-      setError(getErrorMessage(err, "Failed to remove folder."));
-    } finally {
-      setBusy(false);
-    }
-  }, []);
+  const removeFolder = useCallback(
+    async (id: string) => {
+      setBusy(true);
+      setError(null);
+      setMessage(null);
+      try {
+        await backupService.deleteBackupFolder(id);
+        setFolders((current) => current.filter((folder) => folder.id !== id));
+        setSelectedFolderIds((current) =>
+          current.filter((folderId) => folderId !== id),
+        );
+        setEditingFolderId((cur) => {
+          if (cur === id) {
+            setEditFolderPathDraft("");
+            return null;
+          }
+          return cur;
+        });
+        setMessage("Folder removed from backup configuration.");
+      } catch (err) {
+        setError(getErrorMessage(err, "Failed to remove folder."));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [],
+  );
 
   const triggerBackup = useCallback(async () => {
     setBusy(true);
@@ -397,7 +429,8 @@ export function useBackupFoldersController() {
         | "backupMountPath"
         | "maxAgeDays"
         | "maxBackups"
-        | "autoBackupIntervalMinutes",
+        | "autoBackupRunAt"
+        | "autoBackupTimezone",
       value: string,
     ) => {
       setSettingsForm((current) => ({ ...current, [field]: value }));
@@ -409,11 +442,57 @@ export function useBackupFoldersController() {
     setSettingsForm((current) => ({ ...current, autoBackupEnabled: enabled }));
   }, []);
 
+  const toggleAutoBackupFolderId = useCallback((id: string) => {
+    setSettingsForm((current) => {
+      const next = new Set(current.autoBackupFolderIds);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return { ...current, autoBackupFolderIds: [...next] };
+    });
+  }, []);
+
+  const selectAllAutoBackupFolders = useCallback(() => {
+    setSettingsForm((current) => ({
+      ...current,
+      autoBackupFolderIds: folders.map((f) => f.id),
+    }));
+  }, [folders]);
+
+  const clearAutoBackupFolders = useCallback(() => {
+    setSettingsForm((current) => ({ ...current, autoBackupFolderIds: [] }));
+  }, []);
+
   const saveSettings = useCallback(async () => {
     setSavingSettings(true);
     setError(null);
     setMessage(null);
     try {
+      const [hh, mm] = settingsForm.autoBackupRunAt.split(":");
+      const runAtHour = Number.parseInt(String(hh ?? "0"), 10);
+      const runAtMinute = Number.parseInt(String(mm ?? "0"), 10);
+      if (
+        settingsForm.autoBackupEnabled &&
+        settingsForm.autoBackupFolderIds.length === 0
+      ) {
+        setError(
+          "Marque ao menos uma pasta para o backup automático ou desative o agendamento.",
+        );
+        return;
+      }
+      if (
+        !Number.isFinite(runAtHour) ||
+        !Number.isFinite(runAtMinute) ||
+        runAtHour < 0 ||
+        runAtHour > 23 ||
+        runAtMinute < 0 ||
+        runAtMinute > 59
+      ) {
+        setError("Horário do backup automático inválido.");
+        return;
+      }
       const normalized: backupService.BackupSettings = {
         mainMountPath: settingsForm.mainMountPath.trim(),
         backupMountPath: settingsForm.backupMountPath.trim(),
@@ -423,21 +502,32 @@ export function useBackupFoldersController() {
         },
         autoBackup: {
           enabled: settingsForm.autoBackupEnabled,
-          intervalMinutes: Number.parseInt(
-            settingsForm.autoBackupIntervalMinutes,
-            10,
-          ),
+          runAtHour,
+          runAtMinute,
+          timezone:
+            settingsForm.autoBackupTimezone.trim() || "America/Sao_Paulo",
+          folderIds: settingsForm.autoBackupFolderIds,
         },
       };
       const saved = await backupService.updateBackupSettings(normalized);
       setSettings(saved);
+      const folderList = await backupService.listBackupFolders();
+      const pad = (n: number) => String(n).padStart(2, "0");
+      const folderIdsForForm =
+        saved.autoBackup.folderIds === null
+          ? folderList.map((f) => f.id)
+          : [...saved.autoBackup.folderIds];
       setSettingsForm({
         mainMountPath: saved.mainMountPath,
         backupMountPath: saved.backupMountPath,
         maxAgeDays: String(saved.retention.maxAgeDays),
         maxBackups: String(saved.retention.maxBackups),
         autoBackupEnabled: Boolean(saved.autoBackup?.enabled),
-        autoBackupIntervalMinutes: String(saved.autoBackup?.intervalMinutes ?? 60),
+        autoBackupRunAt: `${pad(saved.autoBackup.runAtHour)}:${pad(
+          saved.autoBackup.runAtMinute,
+        )}`,
+        autoBackupTimezone: saved.autoBackup.timezone ?? "America/Sao_Paulo",
+        autoBackupFolderIds: folderIdsForForm,
       });
       await Promise.all([loadMetrics(), loadFolders(), loadProgress(), loadHistory()]);
       setMessage("Configurações de armazenamento salvas.");
@@ -446,7 +536,7 @@ export function useBackupFoldersController() {
     } finally {
       setSavingSettings(false);
     }
-  }, [loadFolders, loadHistory, loadMetrics, loadProgress, settingsForm]);
+  }, [loadFolders, loadHistory, loadMetrics, loadProgress, settingsForm, folders]);
 
   const toggleFolderSelection = useCallback((id: string) => {
     setSelectedFolderIds((current) =>
@@ -507,6 +597,56 @@ export function useBackupFoldersController() {
     [hostBackendBasePath],
   );
 
+  const startEditingFolder = useCallback(
+    (folder: backupService.BackupFolder) => {
+      setEditingFolderId(folder.id);
+      setEditFolderPathDraft(toHostPath(folder.path));
+    },
+    [toHostPath],
+  );
+
+  const setEditFolderPathDraftValue = useCallback((value: string) => {
+    setEditFolderPathDraft(value);
+  }, []);
+
+  const saveEditedFolder = useCallback(async () => {
+    if (!editingFolderId) {
+      return;
+    }
+    const trimmed = editFolderPathDraft.trim();
+    if (!trimmed) {
+      setError("Caminho da pasta é obrigatório.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const pathForApi = toRuntimePath(trimmed) || trimmed;
+      const updated = await backupService.updateBackupFolder(
+        editingFolderId,
+        pathForApi,
+      );
+      setFolders((current) =>
+        current.map((f) => (f.id === updated.id ? updated : f)),
+      );
+      cancelEditingFolder();
+      setMessage("Pasta atualizada.");
+      await Promise.all([loadSettings(), loadHistory()]);
+    } catch (err) {
+      setError(getErrorMessage(err, "Failed to update folder."));
+    } finally {
+      setBusy(false);
+    }
+  }, [
+    editingFolderId,
+    editFolderPathDraft,
+    cancelEditingFolder,
+    toRuntimePath,
+    loadSettings,
+    loadHistory,
+  ]);
+
   return {
     health,
     loadingHealth,
@@ -538,12 +678,21 @@ export function useBackupFoldersController() {
     addFolder,
     updateSettingsField,
     setAutoBackupEnabled,
+    toggleAutoBackupFolderId,
+    selectAllAutoBackupFolders,
+    clearAutoBackupFolders,
     saveSettings,
     selectDirectorySuggestion,
     openDirectorySuggestions,
     clearDirectorySuggestions,
     handlePathInputKeyDown,
     removeFolder,
+    editingFolderId,
+    editFolderPathDraft,
+    setEditFolderPathDraft: setEditFolderPathDraftValue,
+    startEditingFolder,
+    cancelEditingFolder,
+    saveEditedFolder,
     triggerBackup,
     toggleFolderSelection,
     selectAll,

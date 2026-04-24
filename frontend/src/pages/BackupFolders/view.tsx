@@ -44,6 +44,12 @@ export function BackupFoldersView({ controller }: BackupFoldersViewProps) {
     clearDirectorySuggestions,
     handlePathInputKeyDown,
     removeFolder,
+    editingFolderId,
+    editFolderPathDraft,
+    setEditFolderPathDraft,
+    startEditingFolder,
+    cancelEditingFolder,
+    saveEditedFolder,
     triggerBackup,
     toggleFolderSelection,
     selectAll,
@@ -261,20 +267,66 @@ export function BackupFoldersView({ controller }: BackupFoldersViewProps) {
                         />
                       </td>
                       <td className="px-2 py-2 font-mono text-xs sm:text-sm">
-                        {toHostPath(folder.path)}
+                        {editingFolderId === folder.id ? (
+                          <div className="flex min-w-[12rem] flex-col gap-2">
+                            <input
+                              type="text"
+                              value={editFolderPathDraft}
+                              onChange={(event) =>
+                                setEditFolderPathDraft(event.target.value)
+                              }
+                              className="w-full rounded-lg border border-slate-600 bg-slate-950 px-2 py-1.5 text-xs text-slate-100 outline-none focus:border-emerald-600"
+                              aria-label="Novo caminho da pasta"
+                            />
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => void saveEditedFolder()}
+                                className="rounded-md bg-emerald-700 px-2 py-1 text-xs font-medium text-white hover:bg-emerald-600 disabled:opacity-50"
+                              >
+                                Salvar
+                              </button>
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => cancelEditingFolder()}
+                                className="rounded-md bg-slate-700 px-2 py-1 text-xs text-slate-200 hover:bg-slate-600 disabled:opacity-50"
+                              >
+                                Cancelar
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          toHostPath(folder.path)
+                        )}
                       </td>
                       <td className="px-2 py-2 text-slate-300">
                         {formatDate(folder.lastBackupAt)}
                       </td>
                       <td className="px-2 py-2 text-right">
-                        <button
-                          type="button"
-                          disabled={busy}
-                          onClick={() => void removeFolder(folder.id)}
-                          className="rounded-lg bg-red-700 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-red-600 disabled:opacity-50"
-                        >
-                          Remover
-                        </button>
+                        <div className="flex flex-wrap justify-end gap-2">
+                          <button
+                            type="button"
+                            disabled={
+                              busy ||
+                              (editingFolderId !== null &&
+                                editingFolderId !== folder.id)
+                            }
+                            onClick={() => startEditingFolder(folder)}
+                            className="rounded-lg bg-slate-700 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-slate-600 disabled:opacity-50"
+                          >
+                            Editar
+                          </button>
+                          <button
+                            type="button"
+                            disabled={busy || editingFolderId === folder.id}
+                            onClick={() => void removeFolder(folder.id)}
+                            className="rounded-lg bg-red-700 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-red-600 disabled:opacity-50"
+                          >
+                            Remover
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );

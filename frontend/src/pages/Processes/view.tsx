@@ -126,11 +126,36 @@ export function ProcessesView({ controller }: ProcessesViewProps) {
               </span>
             </p>
             <p>
-              Intervalo:{" "}
+              Horário configurado:{" "}
               <span className="font-mono text-slate-200">
-                {processes.schedule.intervalMinutes} min
-              </span>
+                {processes.schedule.runAtLocal}
+              </span>{" "}
+              <span className="text-slate-500">({processes.schedule.timezone})</span>
             </p>
+            <p>
+              Pastas no agendamento:{" "}
+              <span className="font-medium text-slate-200">
+                {processes.schedule.scheduledFolders.length}
+              </span>
+              {processes.schedule.legacyAllFolders ? (
+                <span className="text-xs text-slate-500"> (legado: todas)</span>
+              ) : null}
+            </p>
+            {processes.schedule.scheduledFolders.length > 0 && (
+              <ul className="max-h-32 space-y-1 overflow-y-auto font-mono text-xs text-slate-400">
+                {processes.schedule.scheduledFolders.map((f) => (
+                  <li key={f.id}>{toHostPath(f.path)}</li>
+                ))}
+              </ul>
+            )}
+            {processes.schedule.lastScheduledRunDate && (
+              <p className="text-xs text-slate-500">
+                Último dia processado pelo agendador:{" "}
+                <span className="font-mono text-slate-400">
+                  {processes.schedule.lastScheduledRunDate}
+                </span>
+              </p>
+            )}
             <p>
               Próximo disparo (estimado):{" "}
               <span className="font-mono text-slate-200">

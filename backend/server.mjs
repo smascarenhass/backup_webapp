@@ -19,8 +19,10 @@ import {
   recordFolderBackup,
   removeBackupHistoryEntries,
   removeBackupFolder,
+  updateBackupFolder,
 } from "./backupFoldersStore.mjs";
 import {
+  patchLastScheduledRunDate,
   readBackupSettings,
   updateBackupSettings,
 } from "./backupSettingsStore.mjs";
@@ -105,6 +107,133 @@ function normalizeFsPath(value) {
   const withForwardSlashes = trimmed.replace(/\\/g, "/");
   const collapsed = withForwardSlashes.replace(/\/{2,}/g, "/");
   return path.resolve(collapsed);
+}
+
+function getZonedCalendarParts(date, timeZone) {
+  const fmt = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  });
+  const parts = Object.fromEntries(
+    fmt
+      .formatToParts(date)
+      .filter((p) => p.type !== "literal")
+      .map((p) => [p.type, p.value]),
+  );
+  return {
+    year: Number(parts.year),
+    month: Number(parts.month),
+    day: Number(parts.day),
+    hour: Number(parts.hour),
+    minute: Number(parts.minute),
+  };
+}
+
+function ymdFromZonedParts(p) {
+  const m = String(p.month).padStart(2, "0");
+  const d = String(p.day).padStart(2, "0");
+  return `${p.year}-${m}-${d}`;
+}
+
+function findUtcInstantForZonedWallClock(year, month, day, hour, minute, timeZone) {
+  let lo = Date.UTC(year, month - 1, day - 1, 0, 0, 0);
+  let hi = Date.UTC(year, month - 1, day + 2, 0, 0, 0);
+  const target =
+    year * 1e10 +
+    month * 1e8 +
+    day * 1e6 +
+    hour * 1e4 +
+    minute * 100;
+  while (lo <= hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    const p = getZonedCalendarParts(new Date(mid), timeZone);
+    const key =
+      p.year * 1e10 +
+      p.month * 1e8 +
+      p.day * 1e6 +
+      p.hour * 1e4 +
+      p.minute * 100;
+    if (key === target) {
+      return mid;
+    }
+    if (key < target) {
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return Date.UTC(year, month - 1, day, hour, minute, 0);
+}
+
+function addApproxCalendarDayInZone(year, month, day, timeZone) {
+  const noon = findUtcInstantForZonedWallClock(year, month, day, 12, 0, timeZone);
+  return getZonedCalendarParts(new Date(noon + 36 * 3600 * 1000), timeZone);
+}
+
+async function resolveAutoBackupFolderIds(settings) {
+  const folders = await listBackupFolders();
+  const configured = settings.autoBackup?.folderIds;
+  if (configured === null) {
+    return folders.map((f) => f.id);
+  }
+  const valid = new Set(folders.map((f) => f.id));
+  return configured.filter((id) => valid.has(id));
+}
+
+function computeScheduleEstimate(settings) {
+  if (!settings.autoBackup?.enabled) {
+    return {
+      estimatedNextInternalRunAt: null,
+      estimatedNextInternalRunNote: "Auto backup desativado nas configurações.",
+    };
+  }
+  const tz = settings.autoBackup.timezone;
+  const runH = settings.autoBackup.runAtHour;
+  const runM = settings.autoBackup.runAtMinute;
+  const now = Date.now();
+  const p = getZonedCalendarParts(new Date(now), tz);
+  const ymdToday = ymdFromZonedParts(p);
+  const last = settings.autoBackup.lastScheduledRunDate;
+  let ty = p.year;
+  let tmo = p.month;
+  let td = p.day;
+  if (last === ymdToday) {
+    const tom = addApproxCalendarDayInZone(p.year, p.month, p.day, tz);
+    ty = tom.year;
+    tmo = tom.month;
+    td = tom.day;
+  } else {
+    const todayRun = findUtcInstantForZonedWallClock(
+      p.year,
+      p.month,
+      p.day,
+      runH,
+      runM,
+      tz,
+    );
+    if (todayRun > now) {
+      ty = p.year;
+      tmo = p.month;
+      td = p.day;
+    } else {
+      const tom = addApproxCalendarDayInZone(p.year, p.month, p.day, tz);
+      ty = tom.year;
+      tmo = tom.month;
+      td = tom.day;
+    }
+  }
+  const targetMs = findUtcInstantForZonedWallClock(ty, tmo, td, runH, runM, tz);
+  const pad = (n) => String(n).padStart(2, "0");
+  const note = `Diário às ${pad(runH)}:${pad(runM)} (${tz}).`;
+  return {
+    estimatedNextInternalRunAt: new Date(targetMs).toISOString(),
+    estimatedNextInternalRunNote: note,
+  };
 }
 
 function parseDirectoryQuery(rawQuery, basePathRaw) {
@@ -227,6 +356,38 @@ app.post("/api/backup/folders", async (req, res) => {
     const status = msg.includes("required") || msg.includes("configured") ? 400 : 500;
     res.status(status).json({
       message: "Failed to add backup folder.",
+      detail: msg,
+    });
+  }
+});
+
+app.put("/api/backup/folders/:id", async (req, res) => {
+  try {
+    const settings = await readBackupSettings();
+    const requestedPath = String(req.body?.path ?? "").trim();
+    const resolvedPath = normalizeFsPath(requestedPath);
+    const resolvedMain = normalizeFsPath(settings.mainMountPath || "/");
+    if (
+      !requestedPath ||
+      (resolvedPath !== resolvedMain &&
+        !resolvedPath.startsWith(`${resolvedMain}${path.sep}`))
+    ) {
+      return res.status(400).json({
+        message: "Failed to update backup folder.",
+        detail: "Folder must be inside the configured main mount path.",
+      });
+    }
+    const folder = await updateBackupFolder(req.params.id, resolvedPath);
+    res.json({ folder });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    const status = msg.includes("not found")
+      ? 404
+      : msg.includes("required") || msg.includes("configured")
+        ? 400
+        : 500;
+    res.status(status).json({
+      message: "Failed to update backup folder.",
       detail: msg,
     });
   }
@@ -628,30 +789,16 @@ async function readBackupSyncCronLine(containerName) {
 app.get("/api/backup/processes", async (_req, res) => {
   try {
     const settings = await readBackupSettings();
-    const intervalMinutes = Math.max(
-      1,
-      Number(settings.autoBackup?.intervalMinutes ?? 60),
-    );
-    const intervalMs = intervalMinutes * 60 * 1000;
-    const lastFinishedAtMs = backupProgress.finishedAt
-      ? Date.parse(backupProgress.finishedAt)
-      : NaN;
-    let estimatedNextInternalRunAt = null;
-    let estimatedNextInternalRunNote = null;
-    if (settings.autoBackup?.enabled) {
-      if (Number.isFinite(lastFinishedAtMs) && lastFinishedAtMs > 0) {
-        estimatedNextInternalRunAt = new Date(
-          lastFinishedAtMs + intervalMs,
-        ).toISOString();
-        estimatedNextInternalRunNote =
-          "Estimativa baseada no último término do pipeline interno e no intervalo configurado; o disparo real também depende do tick do servidor.";
-      } else {
-        estimatedNextInternalRunNote =
-          "Auto backup habilitado, mas ainda não há histórico de término neste processo; o primeiro disparo pode ocorrer no próximo tick do servidor.";
-      }
-    } else {
-      estimatedNextInternalRunNote = "Auto backup desativado nas configurações.";
-    }
+    const estimate = computeScheduleEstimate(settings);
+    const folders = await listBackupFolders();
+    const resolvedIds = await resolveAutoBackupFolderIds(settings);
+    const scheduledFolders = folders
+      .filter((f) => resolvedIds.includes(f.id))
+      .map((f) => ({ id: f.id, path: f.path }));
+    const pad = (n) => String(n).padStart(2, "0");
+    const runAtLocal = `${pad(settings.autoBackup.runAtHour)}:${pad(
+      settings.autoBackup.runAtMinute,
+    )}`;
 
     const externalInspect = await inspectDockerContainer(backupSyncContainerName);
     let externalCronLine = null;
@@ -667,9 +814,14 @@ app.get("/api/backup/processes", async (_req, res) => {
       },
       schedule: {
         autoBackupEnabled: Boolean(settings.autoBackup?.enabled),
-        intervalMinutes,
-        estimatedNextInternalRunAt,
-        estimatedNextInternalRunNote,
+        runAtLocal,
+        timezone: settings.autoBackup.timezone,
+        folderIds: resolvedIds,
+        scheduledFolders,
+        legacyAllFolders: settings.autoBackup.folderIds === null,
+        lastScheduledRunDate: settings.autoBackup.lastScheduledRunDate,
+        estimatedNextInternalRunAt: estimate.estimatedNextInternalRunAt,
+        estimatedNextInternalRunNote: estimate.estimatedNextInternalRunNote,
       },
       externalBackupSync: {
         ...externalInspect,
@@ -716,19 +868,32 @@ setInterval(async () => {
     if (!settings.autoBackup?.enabled) {
       return;
     }
-    const intervalMinutes = Math.max(1, Number(settings.autoBackup.intervalMinutes ?? 60));
-    const lastFinishedAtMs = backupProgress.finishedAt
-      ? Date.parse(backupProgress.finishedAt)
-      : 0;
-    const elapsedMs = Date.now() - lastFinishedAtMs;
-    const neededMs = intervalMinutes * 60 * 1000;
-    if (lastFinishedAtMs > 0 && elapsedMs < neededMs) {
+    const tz = settings.autoBackup.timezone;
+    const runH = settings.autoBackup.runAtHour;
+    const runM = settings.autoBackup.runAtMinute;
+    const now = Date.now();
+    const p = getZonedCalendarParts(new Date(now), tz);
+    const ymdToday = ymdFromZonedParts(p);
+    const nowMin = p.hour * 60 + p.minute;
+    const runMinTotal = runH * 60 + runM;
+    const last = settings.autoBackup.lastScheduledRunDate;
+    if (last === ymdToday) {
+      return;
+    }
+    if (nowMin < runMinTotal) {
+      return;
+    }
+    const resolvedIds = await resolveAutoBackupFolderIds(settings);
+    if (!resolvedIds.length) {
+      backupProgress.lastMessage =
+        "Auto backup: nenhuma pasta selecionada no agendamento.";
       return;
     }
     await executeBackupPipeline({
       triggerType: "automatic",
-      requestedFolderIds: [],
+      requestedFolderIds: resolvedIds,
     });
+    await patchLastScheduledRunDate(ymdToday);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     backupProgress.lastError = msg;

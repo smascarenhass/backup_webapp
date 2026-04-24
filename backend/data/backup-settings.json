@@ -6,7 +6,15 @@
     "maxBackups": 1
   },
   "autoBackup": {
-    "enabled": false,
-    "intervalMinutes": 60
+    "enabled": true,
+    "runAtHour": 0,
+    "runAtMinute": 0,
+    "timezone": "America/Sao_Paulo",
+    "folderIds": [
+      "15f6c728-46d0-4751-b1fa-1e37c9786112",
+      "93f6c280-4c30-4885-9f92-51e030c121ea",
+      "271538d1-a8b5-46d1-b015-f961a4b2c2a3"
+    ],
+    "lastScheduledRunDate": null
   }
 }

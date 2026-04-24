@@ -99,6 +99,37 @@ export async function createBackupFolder(path: string): Promise<BackupFolder> {
   return data.folder;
 }
 
+export async function updateBackupFolder(
+  id: string,
+  path: string,
+): Promise<BackupFolder> {
+  const res = await fetch(`${API_BASE}/api/backup/folders/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path }),
+  });
+  const text = await res.text();
+  if (!res.ok) {
+    let detail = `Folder update failed: HTTP ${res.status}`;
+    try {
+      const data = JSON.parse(text) as { detail?: string };
+      if (data.detail) {
+        detail = data.detail;
+      }
+    } catch {
+      if (text) {
+        detail = text;
+      }
+    }
+    throw new Error(detail);
+  }
+  if (!text) {
+    throw new Error(`Empty response (${res.status})`);
+  }
+  const data = JSON.parse(text) as CreateBackupFolderResponse;
+  return data.folder;
+}
+
 export async function deleteBackupFolder(id: string): Promise<void> {
   const res = await fetch(`${API_BASE}/api/backup/folders/${id}`, {
     method: "DELETE",
@@ -117,7 +148,11 @@ export type BackupSettings = {
   };
   autoBackup: {
     enabled: boolean;
-    intervalMinutes: number;
+    runAtHour: number;
+    runAtMinute: number;
+    timezone: string;
+    folderIds: string[] | null;
+    lastScheduledRunDate?: string | null;
   };
 };
 
@@ -242,6 +277,11 @@ export type BackupProcessesExternalInspect =
       supercronicCronLine?: string | null;
     };
 
+export type BackupScheduledFolder = {
+  id: string;
+  path: string;
+};
+
 export type BackupProcesses = {
   generatedAt: string;
   serverTickMs: number;
@@ -250,7 +290,12 @@ export type BackupProcesses = {
   };
   schedule: {
     autoBackupEnabled: boolean;
-    intervalMinutes: number;
+    runAtLocal: string;
+    timezone: string;
+    folderIds: string[];
+    scheduledFolders: BackupScheduledFolder[];
+    legacyAllFolders: boolean;
+    lastScheduledRunDate: string | null;
     estimatedNextInternalRunAt: string | null;
     estimatedNextInternalRunNote: string | null;
   };

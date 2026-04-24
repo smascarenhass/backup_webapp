@@ -25,10 +25,15 @@ export function SettingsView({ controller }: SettingsViewProps) {
     savingSettings,
     metrics,
     loadingMetrics,
+    folders,
+    loadingFolders,
     error,
     message,
     updateSettingsField,
     setAutoBackupEnabled,
+    toggleAutoBackupFolderId,
+    selectAllAutoBackupFolders,
+    clearAutoBackupFolders,
     saveSettings,
     toHostPath,
     toRuntimePath,
@@ -105,7 +110,7 @@ export function SettingsView({ controller }: SettingsViewProps) {
             />
           </label>
           <label className="text-sm text-slate-300">
-            Backup automático
+            Backup automático (diário)
             <div className="mt-2 flex items-center gap-2">
               <input
                 type="checkbox"
@@ -116,18 +121,90 @@ export function SettingsView({ controller }: SettingsViewProps) {
             </div>
           </label>
           <label className="text-sm text-slate-300">
-            Intervalo automático (minutos)
+            Horário local do disparo
             <input
-              type="number"
-              min={1}
-              value={settingsForm.autoBackupIntervalMinutes}
+              type="time"
+              value={settingsForm.autoBackupRunAt}
               onChange={(event) =>
-                updateSettingsField("autoBackupIntervalMinutes", event.target.value)
+                updateSettingsField("autoBackupRunAt", event.target.value)
               }
               className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-emerald-600"
               disabled={!settingsForm.autoBackupEnabled}
             />
           </label>
+          <label className="text-sm text-slate-300 md:col-span-2">
+            Fuso horário (IANA, ex. America/Sao_Paulo)
+            <input
+              type="text"
+              value={settingsForm.autoBackupTimezone}
+              onChange={(event) =>
+                updateSettingsField("autoBackupTimezone", event.target.value)
+              }
+              className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-emerald-600"
+              disabled={!settingsForm.autoBackupEnabled}
+              placeholder="America/Sao_Paulo"
+            />
+          </label>
+        </div>
+        <div className="mt-4 rounded-lg border border-slate-800 bg-slate-950/40 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-sm font-medium text-slate-300">
+              Pastas incluídas neste agendamento
+            </h3>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={!settingsForm.autoBackupEnabled || loadingFolders}
+                onClick={() => selectAllAutoBackupFolders()}
+                className="rounded-md bg-slate-800 px-2 py-1 text-xs text-slate-200 hover:bg-slate-700 disabled:opacity-40"
+              >
+                Marcar todas
+              </button>
+              <button
+                type="button"
+                disabled={!settingsForm.autoBackupEnabled}
+                onClick={() => clearAutoBackupFolders()}
+                className="rounded-md bg-slate-800 px-2 py-1 text-xs text-slate-200 hover:bg-slate-700 disabled:opacity-40"
+              >
+                Limpar
+              </button>
+            </div>
+          </div>
+          <p className="mt-1 text-xs text-slate-500">
+            As mesmas pastas configuradas em Backups; só as marcadas rodam no
+            horário automático. O backup manual na outra página continua usando a
+            seleção daquele ecrã.
+          </p>
+          {loadingFolders && (
+            <p className="mt-2 text-xs text-slate-500">Carregando pastas...</p>
+          )}
+          {!loadingFolders && folders.length === 0 && (
+            <p className="mt-2 text-xs text-amber-200/90">
+              Adicione pastas em Backups antes de agendar.
+            </p>
+          )}
+          {!loadingFolders && folders.length > 0 && (
+            <ul className="mt-3 max-h-48 space-y-2 overflow-y-auto text-sm">
+              {folders.map((folder) => (
+                <li key={folder.id} className="flex items-start gap-2">
+                  <input
+                    type="checkbox"
+                    id={`sched-${folder.id}`}
+                    className="mt-1"
+                    disabled={!settingsForm.autoBackupEnabled}
+                    checked={settingsForm.autoBackupFolderIds.includes(folder.id)}
+                    onChange={() => toggleAutoBackupFolderId(folder.id)}
+                  />
+                  <label
+                    htmlFor={`sched-${folder.id}`}
+                    className="cursor-pointer font-mono text-xs text-slate-300"
+                  >
+                    {toHostPath(folder.path)}
+                  </label>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
         <button
           type="button"

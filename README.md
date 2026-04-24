@@ -35,6 +35,15 @@ npm run cleanup:legacy-targz -- --yes --prune-history
 node scripts/cleanup-legacy-root-targz.mjs --backup-root /hdds/backup --yes
 ```
 
+## Backup automático (painel)
+
+Em **Settings**, o agendamento interno do webapp é **uma vez por dia**:
+
+- **Horário** e **fuso IANA** (ex.: `America/Sao_Paulo`) definem quando o tick da API dispara o pipeline.
+- Só as **pastas marcadas** na secção “Pastas incluídas neste agendamento” entram no backup automático (as pastas continuam a ser as mesmas configuradas em **Backups**).
+- O backup **manual** na página Backups usa a seleção dessa página; não é o mesmo estado que o agendamento.
+- O ficheiro [`backend/data/backup-settings.json`](backend/data/backup-settings.json) guarda `runAtHour`, `runAtMinute`, `timezone`, `folderIds` e `lastScheduledRunDate` (data `YYYY-MM-DD` no fuso escolhida, para no máximo um disparo bem-sucedido por dia). Se `folderIds` for `null` (configuração antiga), o servidor trata como **todas** as pastas até gravares de novo nas Settings.
+
 ## Local development
 
 ```bash
