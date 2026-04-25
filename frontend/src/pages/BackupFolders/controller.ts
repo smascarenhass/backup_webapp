@@ -416,7 +416,13 @@ export function useBackupFoldersController() {
         }.`,
       );
     } catch (err) {
-      setError(getErrorMessage(err, "Failed to trigger backup."));
+      const msg = getErrorMessage(err, "Failed to trigger backup.");
+      if (msg.includes("Já existe um backup em curso")) {
+        setMessage(msg);
+        void loadProgress();
+      } else {
+        setError(msg);
+      }
     } finally {
       setBusy(false);
     }
@@ -703,6 +709,8 @@ export function useBackupFoldersController() {
     toRuntimePath,
     reloadHistory: loadHistory,
     reloadProcesses: loadProcesses,
+    reloadSettings: loadSettings,
+    reloadMetrics: loadMetrics,
   };
 }
 

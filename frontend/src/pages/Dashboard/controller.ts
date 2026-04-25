@@ -36,8 +36,14 @@ export function useDashboardController() {
       const r = await backupService.triggerBackup();
       setTriggerMsg(r.message);
     } catch (e) {
-      setTriggerMsg(null);
-      setError(e instanceof Error ? e.message : "Unknown error");
+      const msg = e instanceof Error ? e.message : "Unknown error";
+      if (msg.includes("Já existe um backup em curso")) {
+        setError(null);
+        setTriggerMsg(msg);
+      } else {
+        setTriggerMsg(null);
+        setError(msg);
+      }
     } finally {
       setTriggerBusy(false);
     }

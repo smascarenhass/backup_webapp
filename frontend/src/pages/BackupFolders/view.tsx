@@ -111,13 +111,18 @@ export function BackupFoldersView({ controller }: BackupFoldersViewProps) {
               />
             </div>
             <p className="text-slate-300">{progress.lastMessage}</p>
+            {progress.running && (
+              <p className="text-sm font-medium text-emerald-300/90">
+                Estado: em execução
+              </p>
+            )}
             {progress.currentFolderPath && (
               <p className="font-mono text-xs text-slate-400">
                 Pasta atual: {toHostPath(progress.currentFolderPath)}
               </p>
             )}
-            {progress.lastError && (
-              <p className="text-red-300">Erro recente: {progress.lastError}</p>
+            {!progress.running && progress.lastError && (
+              <p className="text-red-300">Falha recente: {progress.lastError}</p>
             )}
           </div>
         )}

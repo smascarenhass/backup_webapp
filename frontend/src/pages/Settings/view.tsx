@@ -1,30 +1,15 @@
+import { useState } from "react";
 import type { BackupFoldersController } from "../BackupFolders/controller";
 
 type SettingsViewProps = {
   controller: BackupFoldersController;
 };
 
-function formatBytes(value: number | null | undefined) {
-  if (!value || value <= 0) {
-    return "0 B";
-  }
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  let current = value;
-  let idx = 0;
-  while (current >= 1024 && idx < units.length - 1) {
-    current /= 1024;
-    idx += 1;
-  }
-  return `${current.toFixed(current >= 10 || idx === 0 ? 0 : 1)} ${units[idx]}`;
-}
-
 export function SettingsView({ controller }: SettingsViewProps) {
   const {
     settings,
     settingsForm,
     savingSettings,
-    metrics,
-    loadingMetrics,
     folders,
     loadingFolders,
     error,
@@ -35,9 +20,17 @@ export function SettingsView({ controller }: SettingsViewProps) {
     selectAllAutoBackupFolders,
     clearAutoBackupFolders,
     saveSettings,
+    reloadSettings,
     toHostPath,
     toRuntimePath,
   } = controller;
+
+  const [storageEditorOpen, setStorageEditorOpen] = useState(false);
+
+  const closeStorageEditor = () => {
+    setStorageEditorOpen(false);
+    void reloadSettings();
+  };
 
   return (
     <div className="mx-auto flex min-h-screen max-w-4xl flex-col gap-6 p-6">
@@ -51,9 +44,73 @@ export function SettingsView({ controller }: SettingsViewProps) {
       </header>
 
       <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-5 shadow-lg">
-        <h2 className="text-sm font-medium uppercase tracking-wide text-slate-500">
-          Armazenamento e retenção
-        </h2>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <h2 className="text-sm font-medium uppercase tracking-wide text-slate-500">
+            Armazenamento e retenção
+          </h2>
+          {!storageEditorOpen ? (
+            <button
+              type="button"
+              onClick={() => setStorageEditorOpen(true)}
+              className="rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:bg-slate-700"
+            >
+              Editar
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => closeStorageEditor()}
+              className="rounded-lg border border-slate-600 bg-slate-900 px-3 py-1.5 text-xs font-medium text-slate-300 transition hover:bg-slate-800"
+            >
+              Fechar
+            </button>
+          )}
+        </div>
+
+        {!storageEditorOpen && !settings && (
+          <p className="mt-3 text-sm text-slate-500">Carregando definições...</p>
+        )}
+
+        {!storageEditorOpen && settings && (
+          <div className="mt-3 space-y-2 text-sm text-slate-400">
+            <p>
+              <span className="text-slate-500">HD principal:</span>{" "}
+              <code className="text-slate-300">
+                {toHostPath(settings.mainMountPath) || "—"}
+              </code>
+            </p>
+            <p>
+              <span className="text-slate-500">HD backup:</span>{" "}
+              <code className="text-slate-300">
+                {toHostPath(settings.backupMountPath) || "—"}
+              </code>
+            </p>
+            <p>
+              <span className="text-slate-500">Retenção:</span>{" "}
+              {settings.retention.maxAgeDays} dias · máx.{" "}
+              {settings.retention.maxBackups} cópias
+            </p>
+            <p>
+              <span className="text-slate-500">Backup automático:</span>{" "}
+              {settings.autoBackup.enabled ? (
+                <span className="text-emerald-400">
+                  Ativado às {String(settings.autoBackup.runAtHour).padStart(2, "0")}:
+                  {String(settings.autoBackup.runAtMinute).padStart(2, "0")} (
+                  {settings.autoBackup.timezone})
+                </span>
+              ) : (
+                <span>Desativado</span>
+              )}
+            </p>
+            <p className="text-xs text-slate-500">
+              Clique em <span className="text-slate-400">Editar</span> para alterar
+              caminhos, retenção e agendamento.
+            </p>
+          </div>
+        )}
+
+        {storageEditorOpen && (
+          <>
         <div className="mt-3 grid gap-3 md:grid-cols-2">
           <label className="text-sm text-slate-300">
             HD principal (mount path)
@@ -220,46 +277,7 @@ export function SettingsView({ controller }: SettingsViewProps) {
             {toHostPath(settings?.mainMountPath) || "-"}
           </code>
         </p>
-      </section>
-
-      <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-5 shadow-lg">
-        <h2 className="text-sm font-medium uppercase tracking-wide text-slate-500">
-          Perspectiva de persistência
-        </h2>
-        {loadingMetrics && <p className="mt-3 text-slate-400">Carregando métricas...</p>}
-        {!loadingMetrics && metrics && (
-          <dl className="mt-3 grid gap-2 text-sm">
-            <div className="flex justify-between gap-3">
-              <dt className="text-slate-500">Espaço livre no HD backup</dt>
-              <dd className="text-slate-100">{formatBytes(metrics.freeBytes)}</dd>
-            </div>
-            <div className="flex justify-between gap-3">
-              <dt className="text-slate-500">Tamanho total dos backups</dt>
-              <dd className="text-slate-100">{formatBytes(metrics.totalBackupsSizeBytes)}</dd>
-            </div>
-            <div className="flex justify-between gap-3">
-              <dt className="text-slate-500">Média por backup</dt>
-              <dd className="text-slate-100">
-                {metrics.avgBackupSizeBytes
-                  ? formatBytes(metrics.avgBackupSizeBytes)
-                  : "Histórico insuficiente"}
-              </dd>
-            </div>
-            <div className="flex justify-between gap-3">
-              <dt className="text-slate-500">Estimativa de ciclos possíveis</dt>
-              <dd className="text-slate-100">
-                {metrics.estimatedBackupsFit ?? "Histórico insuficiente"}
-              </dd>
-            </div>
-            <div className="flex justify-between gap-3">
-              <dt className="text-slate-500">Estimativa de dias</dt>
-              <dd className="text-slate-100">
-                {metrics.estimatedDaysFit
-                  ? `${metrics.estimatedDaysFit.toFixed(1)} dias`
-                  : "Histórico insuficiente"}
-              </dd>
-            </div>
-          </dl>
+          </>
         )}
       </section>
 

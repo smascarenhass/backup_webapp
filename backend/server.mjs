@@ -713,6 +713,12 @@ app.get("/api/backup/history", async (_req, res) => {
 });
 
 app.get("/api/backup/progress", (_req, res) => {
+  if (
+    backupProgress.running &&
+    backupProgress.lastError === "Backup already running."
+  ) {
+    backupProgress.lastError = null;
+  }
   return res.json({ progress: backupProgress });
 });
 
@@ -849,6 +855,14 @@ app.post("/api/backup/trigger", async (req, res) => {
     res.json(result);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    if (msg === "Backup already running.") {
+      return res.status(409).json({
+        ok: false,
+        message: "A backup is already in progress.",
+        detail: msg,
+        progress: { ...backupProgress },
+      });
+    }
     backupProgress.lastError = msg;
     backupProgress.lastMessage = "Backup failed.";
     res.status(500).json({
@@ -896,6 +910,9 @@ setInterval(async () => {
     await patchLastScheduledRunDate(ymdToday);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    if (msg === "Backup already running.") {
+      return;
+    }
     backupProgress.lastError = msg;
     backupProgress.lastMessage = "Automatic backup failed.";
   }

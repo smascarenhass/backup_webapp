@@ -46,10 +46,30 @@ export async function triggerBackup(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ folderIds: folderIds ?? [] }),
   });
+  const text = await res.text();
   if (!res.ok) {
-    throw new Error(`Trigger failed: HTTP ${res.status}`);
+    if (res.status === 409) {
+      throw new Error(
+        "Já existe um backup em curso. Aguarde a conclusão ou acompanhe o progresso acima.",
+      );
+    }
+    let detail = `Trigger failed: HTTP ${res.status}`;
+    if (text) {
+      try {
+        const j = JSON.parse(text) as { detail?: string };
+        if (j.detail) {
+          detail = j.detail;
+        }
+      } catch {
+        detail = text.slice(0, 200);
+      }
+    }
+    throw new Error(detail);
   }
-  return parseJson<TriggerBackupResponse>(res);
+  if (!text) {
+    throw new Error("Empty response from trigger");
+  }
+  return JSON.parse(text) as TriggerBackupResponse;
 }
 
 export type BackupFolder = {

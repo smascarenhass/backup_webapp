@@ -101,9 +101,9 @@ export function ProcessesView({ controller }: ProcessesViewProps) {
               <p>Início: {formatDateTime(progress.startedAt)}</p>
               <p>Término: {formatDateTime(progress.finishedAt)}</p>
             </div>
-            {progress.lastError && (
+            {!progress.running && progress.lastError && (
               <p className="text-sm text-red-300">
-                Erro recente: {progress.lastError}
+                Falha recente: {progress.lastError}
               </p>
             )}
           </div>
