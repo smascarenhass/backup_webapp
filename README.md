@@ -58,6 +58,49 @@ cd frontend && npm run dev
 
 Vite proxies `/api` to `http://127.0.0.1:8011`.
 
+## Testes
+
+### Frontend (Vitest)
+
+```bash
+cd /hdds/main/documents/projects/backup_webapp/frontend
+npm test
+```
+
+Cobertura atual inclui:
+
+- `src/services/__tests__/backupService.test.ts` (cliente HTTP)
+- `src/pages/Dashboard/__tests__/useDashboardController.test.tsx`
+- `src/pages/BackupFolders/__tests__/useBackupFoldersController.test.tsx`
+
+### Backend API (Vitest + Supertest)
+
+```bash
+cd /hdds/main/documents/projects/backup_webapp/backend
+npm test
+```
+
+Cobertura atual inclui:
+
+- stores (`test/stores.test.mjs`)
+- endpoints/fluxo de trigger e concorrência (`test/server.trigger.test.mjs`)
+
+## Build de containers com testes
+
+Os Dockerfiles do frontend e da API foram configurados em multi-stage para rodar testes durante o build:
+
+- `backend/Dockerfile`: roda `npm test` no stage `test` antes da imagem final.
+- `frontend/Dockerfile.frontend`: roda `npm test` no stage `test` antes do `npm run build`.
+
+Se um teste falhar, o `docker build` falha.
+
+Exemplo:
+
+```bash
+cd /hdds/main/documents/projects/backup_webapp
+docker compose build backup-webapp-api backup-webapp-frontend
+```
+
 ## Docker Compose
 
 Ports:
