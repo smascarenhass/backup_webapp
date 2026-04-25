@@ -33,6 +33,8 @@ const app = express();
 const port = Number(process.env.PORT ?? "8011");
 const browseBasePath = process.env.BROWSE_BASE_PATH ?? "/hdds/main";
 const autoBackupTickMs = Number(process.env.AUTO_BACKUP_TICK_MS ?? "30000");
+const enableListen = process.env.BACKEND_ENABLE_LISTEN !== "0";
+const enableAutoBackupTimer = process.env.BACKEND_ENABLE_AUTO_BACKUP_TIMER !== "0";
 const backupSyncContainerName =
   process.env.BACKUP_SYNC_CONTAINER_NAME ??
   process.env.BACKUP_CONTAINER_NAME ??
@@ -873,7 +875,8 @@ app.post("/api/backup/trigger", async (req, res) => {
   }
 });
 
-setInterval(async () => {
+const autoBackupTimer = enableAutoBackupTimer
+  ? setInterval(async () => {
   if (backupProgress.running) {
     return;
   }
@@ -916,8 +919,13 @@ setInterval(async () => {
     backupProgress.lastError = msg;
     backupProgress.lastMessage = "Automatic backup failed.";
   }
-}, autoBackupTickMs);
+}, autoBackupTickMs)
+  : null;
 
-app.listen(port, "0.0.0.0", () => {
-  console.log(`backup-api listening on ${port}`);
-});
+if (enableListen) {
+  app.listen(port, "0.0.0.0", () => {
+    console.log(`backup-api listening on ${port}`);
+  });
+}
+
+export { app, autoBackupTimer };

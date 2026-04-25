@@ -6,10 +6,16 @@
   "scripts": {
     "dev": "node --watch server.mjs",
     "start": "node server.mjs",
-    "cleanup:legacy-targz": "node scripts/cleanup-legacy-root-targz.mjs"
+    "cleanup:legacy-targz": "node scripts/cleanup-legacy-root-targz.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^4.21.1"
+  },
+  "devDependencies": {
+    "supertest": "^7.1.1",
+    "vitest": "^3.2.4"
   }
 }
