@@ -20,6 +20,13 @@ const defaultSettings = {
     folderIds: null,
     lastScheduledRunDate: null,
   },
+  performance: {
+    profile: "balanced",
+    compressionFormat: "gz",
+    compressionLevel: 3,
+    maxConcurrency: 2,
+    excludePatterns: [],
+  },
 };
 
 function normalizePath(value) {
@@ -102,6 +109,70 @@ function normalizeLastScheduledRunDate(autoBackup) {
   return null;
 }
 
+const MAX_EXCLUDE_PATTERNS = 64;
+const MAX_EXCLUDE_PATTERN_LENGTH = 256;
+const ALLOWED_PROFILE = new Set([
+  "conservative",
+  "balanced",
+  "aggressive",
+  "custom",
+]);
+const ALLOWED_COMPRESSION_FORMAT = new Set(["gz", "xz"]);
+
+function normalizePerformance(rawPerformance) {
+  const perf =
+    rawPerformance && typeof rawPerformance === "object" ? rawPerformance : {};
+  const profileRaw = String(perf.profile ?? "").trim().toLowerCase();
+  const profile = ALLOWED_PROFILE.has(profileRaw)
+    ? profileRaw
+    : defaultSettings.performance.profile;
+  const formatRaw = String(perf.compressionFormat ?? "").trim().toLowerCase();
+  const compressionFormat = ALLOWED_COMPRESSION_FORMAT.has(formatRaw)
+    ? formatRaw
+    : profile === "aggressive"
+      ? "gz"
+      : profile === "conservative"
+        ? "xz"
+        : defaultSettings.performance.compressionFormat;
+  const fallbackLevelByProfile =
+    profile === "conservative" ? 6 : profile === "aggressive" ? 1 : 3;
+  const minLevel = compressionFormat === "xz" ? 0 : 1;
+  const maxLevel = 9;
+  const parsedLevel = Number.parseInt(String(perf.compressionLevel ?? ""), 10);
+  const compressionLevel =
+    Number.isFinite(parsedLevel) && parsedLevel >= minLevel && parsedLevel <= maxLevel
+      ? parsedLevel
+      : fallbackLevelByProfile;
+
+  const parsedConcurrency = Number.parseInt(String(perf.maxConcurrency ?? ""), 10);
+  const fallbackConcurrency =
+    profile === "conservative" ? 1 : profile === "aggressive" ? 4 : 2;
+  const maxConcurrency =
+    Number.isFinite(parsedConcurrency) && parsedConcurrency >= 1 && parsedConcurrency <= 8
+      ? parsedConcurrency
+      : fallbackConcurrency;
+
+  const sourcePatterns = Array.isArray(perf.excludePatterns)
+    ? perf.excludePatterns
+    : [];
+  const excludePatterns = [
+    ...new Set(
+      sourcePatterns
+        .map((entry) => String(entry ?? "").trim())
+        .filter(Boolean)
+        .filter((entry) => entry.length <= MAX_EXCLUDE_PATTERN_LENGTH),
+    ),
+  ].slice(0, MAX_EXCLUDE_PATTERNS);
+
+  return {
+    profile,
+    compressionFormat,
+    compressionLevel,
+    maxConcurrency,
+    excludePatterns,
+  };
+}
+
 function normalizeSettings(raw) {
   const source = raw && typeof raw === "object" ? raw : {};
   const retention =
@@ -134,6 +205,7 @@ function normalizeSettings(raw) {
       folderIds: normalizeFolderIds(autoBackup),
       lastScheduledRunDate: normalizeLastScheduledRunDate(autoBackup),
     },
+    performance: normalizePerformance(source.performance),
   };
 }
 
@@ -215,6 +287,11 @@ export async function updateBackupSettings(input) {
   }
   if (!path.isAbsolute(next.mainMountPath) || !path.isAbsolute(next.backupMountPath)) {
     throw new Error("Mount paths must be absolute.");
+  }
+  for (const pattern of next.performance.excludePatterns) {
+    if (!/^[a-zA-Z0-9_./*?@+-]+$/.test(pattern)) {
+      throw new Error(`Invalid exclude pattern: ${pattern}`);
+    }
   }
   if (next.autoBackup.folderIds !== null) {
     const folders = await listBackupFolders();

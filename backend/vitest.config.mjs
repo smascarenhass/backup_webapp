@@ -7,6 +7,7 @@ export default defineConfig({
     fileParallelism: false,
     maxWorkers: 1,
     minWorkers: 1,
+    testTimeout: 15000,
     env: {
       BACKEND_ENABLE_LISTEN: "0",
       BACKEND_ENABLE_AUTO_BACKUP_TIMER: "0",

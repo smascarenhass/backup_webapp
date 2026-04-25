@@ -36,6 +36,14 @@ export type TriggerBackupResponse = {
   removedByRetention?: number;
   archives?: string[];
   triggerType?: "manual" | "automatic";
+  metrics?: {
+    compressionFormat: "gz" | "xz";
+    compressionLevel: number;
+    concurrency: number;
+    totalArchivedBytes: number;
+    totalDurationMs: number;
+    throughputMBps: number;
+  };
 };
 
 export async function triggerBackup(
@@ -173,6 +181,13 @@ export type BackupSettings = {
     timezone: string;
     folderIds: string[] | null;
     lastScheduledRunDate?: string | null;
+  };
+  performance: {
+    profile: "conservative" | "balanced" | "aggressive" | "custom";
+    compressionFormat: "gz" | "xz";
+    compressionLevel: number;
+    maxConcurrency: number;
+    excludePatterns: string[];
   };
 };
 
@@ -318,6 +333,13 @@ export type BackupProcesses = {
     lastScheduledRunDate: string | null;
     estimatedNextInternalRunAt: string | null;
     estimatedNextInternalRunNote: string | null;
+  };
+  performance: {
+    profile: "conservative" | "balanced" | "aggressive" | "custom";
+    compressionFormat: "gz" | "xz";
+    compressionLevel: number;
+    maxConcurrency: number;
+    excludePatterns: string[];
   };
   externalBackupSync: BackupProcessesExternalInspect;
 };

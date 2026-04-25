@@ -13,6 +13,9 @@ DEFAULT_DESTINO="/data/backup/aninha"
 DEFAULT_FILE_PREFIX="backup_aninha"
 DEFAULT_RETENTION_DAYS=1
 DEFAULT_LOG_FILE=""
+DEFAULT_COMPRESS_FORMAT="gz"
+DEFAULT_COMPRESS_LEVEL=3
+DEFAULT_JOBS_CONCURRENCY=2
 
 log() {
   local msg="$1"
@@ -61,12 +64,29 @@ load_config() {
   FILE_PREFIX="${FILE_PREFIX:-$DEFAULT_FILE_PREFIX}"
   RETENTION_DAYS="${RETENTION_DAYS:-$DEFAULT_RETENTION_DAYS}"
   LOG_FILE="${LOG_FILE:-$DEFAULT_LOG_FILE}"
+  COMPRESS_FORMAT="${COMPRESS_FORMAT:-$DEFAULT_COMPRESS_FORMAT}"
+  COMPRESS_LEVEL="${COMPRESS_LEVEL:-$DEFAULT_COMPRESS_LEVEL}"
+  JOBS_CONCURRENCY="${JOBS_CONCURRENCY:-$DEFAULT_JOBS_CONCURRENCY}"
+  BACKUP_EXCLUDES="${BACKUP_EXCLUDES:-}"
 
   # If JOBS is undefined or empty, create a single job from simple fields
   if ! declare -p JOBS >/dev/null 2>&1; then
     JOBS=("${FILE_PREFIX}|${ORIGEM}|${DESTINO}")
   elif [[ ${#JOBS[@]} -eq 0 ]]; then
     JOBS=("${FILE_PREFIX}|${ORIGEM}|${DESTINO}")
+  fi
+
+  if [[ ! "$COMPRESS_FORMAT" =~ ^(gz|xz)$ ]]; then
+    log "Invalid COMPRESS_FORMAT='$COMPRESS_FORMAT' (allowed: gz|xz)."
+    exit 1
+  fi
+  if [[ ! "$COMPRESS_LEVEL" =~ ^[0-9]+$ ]]; then
+    log "Invalid COMPRESS_LEVEL='$COMPRESS_LEVEL' (0-9)."
+    exit 1
+  fi
+  if [[ ! "$JOBS_CONCURRENCY" =~ ^[0-9]+$ ]] || [[ "$JOBS_CONCURRENCY" -lt 1 ]] || [[ "$JOBS_CONCURRENCY" -gt 8 ]]; then
+    log "Invalid JOBS_CONCURRENCY='$JOBS_CONCURRENCY' (1-8)."
+    exit 1
   fi
 }
 
@@ -126,33 +146,60 @@ remove_old_backups() {
 }
 
 run_backup() {
-  for job in "${JOBS[@]}"; do
-    parse_job "$job"
+  local pids=()
+  local running=0
+  local overall_start
+  overall_start=$(date +%s)
 
-    local data arquivo inicio fim duracao minutos segundos destino_final
+  run_single_job() {
+    local job_line="$1"
+    parse_job "$job_line"
+    local data arquivo inicio fim duracao minutos segundos destino_final size_bytes throughput
+    local tar_args=()
+    local exclude_args=()
 
     data=$(date +%Y%m%d_%H%M%S)
-    arquivo="${JOB_PREFIX}_${data}.tar.xz"
+    if [[ "$COMPRESS_FORMAT" == "xz" ]]; then
+      arquivo="${JOB_PREFIX}_${data}.tar.xz"
+      tar_args=(-I "xz -${COMPRESS_LEVEL}" -cf)
+    else
+      arquivo="${JOB_PREFIX}_${data}.tar.gz"
+      tar_args=(-I "gzip -${COMPRESS_LEVEL}" -cf)
+    fi
     destino_final="${JOB_DESTINO}${arquivo}"
+
+    if [[ -n "$BACKUP_EXCLUDES" ]]; then
+      IFS=',' read -r -a excludes_arr <<< "$BACKUP_EXCLUDES"
+      for pattern in "${excludes_arr[@]}"; do
+        pattern="$(echo "$pattern" | xargs)"
+        [[ -z "$pattern" ]] && continue
+        if [[ ! "$pattern" =~ ^[a-zA-Z0-9_./*?@+-]+$ ]]; then
+          log "Ignoring invalid exclude pattern: $pattern"
+          continue
+        fi
+        exclude_args+=("--exclude=$pattern")
+      done
+    fi
 
     log "----------------------------------------"
     log "Backup start (${JOB_PREFIX}): $(date)"
     log "Source: $JOB_ORIGEM"
     log "Target: $destino_final"
+    log "Compression (${JOB_PREFIX}): ${COMPRESS_FORMAT}-${COMPRESS_LEVEL}"
 
     inicio=$(date +%s)
 
     if [[ -n "$LOG_FILE" ]]; then
-      if tar -cJf "$destino_final" -C "$JOB_ORIGEM" . >> "$LOG_FILE" 2>&1; then
+      if tar "${tar_args[@]}" "$destino_final" -C "$JOB_ORIGEM" "${exclude_args[@]}" . >> "$LOG_FILE" 2>&1; then
         :
       else
         log "Error during backup (${JOB_PREFIX}) (see $LOG_FILE for details)."
-        exit 1
+        return 1
       fi
     else
-      if ! tar -cJf "$destino_final" -C "$JOB_ORIGEM" .; then
+      if ! tar "${tar_args[@]}" "$destino_final" -C "$JOB_ORIGEM" "${exclude_args[@]}" .; then
         log "Error during backup (${JOB_PREFIX})."
-        exit 1
+        return 1
       fi
     fi
 
@@ -160,10 +207,44 @@ run_backup() {
     duracao=$((fim - inicio))
     minutos=$((duracao / 60))
     segundos=$((duracao % 60))
+    size_bytes=$(stat -c%s "$destino_final" 2>/dev/null || echo 0)
+    if [[ "$duracao" -gt 0 ]]; then
+      throughput=$(awk "BEGIN { printf \"%.2f\", ($size_bytes/1024/1024)/$duracao }")
+    else
+      throughput="0.00"
+    fi
 
     log "Backup finished (${JOB_PREFIX}) at $(date)"
     log "Duration (${JOB_PREFIX}): ${minutos} minutes and ${segundos} seconds"
+    log "Metrics (${JOB_PREFIX}): size=${size_bytes} bytes throughput=${throughput} MB/s"
+    return 0
+  }
+
+  for job in "${JOBS[@]}"; do
+    run_single_job "$job" &
+    pids+=("$!")
+    running=$((running + 1))
+
+    if [[ "$running" -ge "$JOBS_CONCURRENCY" ]]; then
+      if ! wait -n; then
+        log "At least one backup job failed."
+        exit 1
+      fi
+      running=$((running - 1))
+    fi
   done
+
+  for pid in "${pids[@]}"; do
+    if ! wait "$pid"; then
+      log "At least one backup job failed (pid=$pid)."
+      exit 1
+    fi
+  done
+
+  local overall_end overall_duration
+  overall_end=$(date +%s)
+  overall_duration=$((overall_end - overall_start))
+  log "Backup run summary: jobs=${#JOBS[@]} concurrency=${JOBS_CONCURRENCY} duration=${overall_duration}s"
 }
 
 report_disk() {

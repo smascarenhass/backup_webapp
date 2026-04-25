@@ -37,6 +37,11 @@ export function useBackupFoldersController() {
     autoBackupRunAt: "02:00",
     autoBackupTimezone: "America/Sao_Paulo",
     autoBackupFolderIds: [] as string[],
+    performanceProfile: "balanced" as "conservative" | "balanced" | "aggressive" | "custom",
+    compressionFormat: "gz" as "gz" | "xz",
+    compressionLevel: "3",
+    maxConcurrency: "2",
+    excludePatternsText: "",
   });
   const [savingSettings, setSavingSettings] = useState(false);
   const [metrics, setMetrics] = useState<backupService.BackupStorageMetrics | null>(null);
@@ -148,6 +153,11 @@ export function useBackupFoldersController() {
         autoBackupTimezone:
           nextSettings.autoBackup.timezone ?? "America/Sao_Paulo",
         autoBackupFolderIds: folderIdsForForm,
+        performanceProfile: nextSettings.performance?.profile ?? "balanced",
+        compressionFormat: nextSettings.performance?.compressionFormat ?? "gz",
+        compressionLevel: String(nextSettings.performance?.compressionLevel ?? 3),
+        maxConcurrency: String(nextSettings.performance?.maxConcurrency ?? 2),
+        excludePatternsText: (nextSettings.performance?.excludePatterns ?? []).join("\n"),
       });
     } catch (err) {
       setError(getErrorMessage(err, "Failed to load backup settings."));
@@ -436,13 +446,27 @@ export function useBackupFoldersController() {
         | "maxAgeDays"
         | "maxBackups"
         | "autoBackupRunAt"
-        | "autoBackupTimezone",
+        | "autoBackupTimezone"
+        | "compressionLevel"
+        | "maxConcurrency"
+        | "excludePatternsText",
       value: string,
     ) => {
       setSettingsForm((current) => ({ ...current, [field]: value }));
     },
     [],
   );
+
+  const setPerformanceProfile = useCallback(
+    (profile: "conservative" | "balanced" | "aggressive" | "custom") => {
+      setSettingsForm((current) => ({ ...current, performanceProfile: profile }));
+    },
+    [],
+  );
+
+  const setCompressionFormat = useCallback((format: "gz" | "xz") => {
+    setSettingsForm((current) => ({ ...current, compressionFormat: format }));
+  }, []);
 
   const setAutoBackupEnabled = useCallback((enabled: boolean) => {
     setSettingsForm((current) => ({ ...current, autoBackupEnabled: enabled }));
@@ -479,6 +503,14 @@ export function useBackupFoldersController() {
       const [hh, mm] = settingsForm.autoBackupRunAt.split(":");
       const runAtHour = Number.parseInt(String(hh ?? "0"), 10);
       const runAtMinute = Number.parseInt(String(mm ?? "0"), 10);
+      const compressionLevel = Number.parseInt(settingsForm.compressionLevel, 10);
+      const maxConcurrency = Number.parseInt(settingsForm.maxConcurrency, 10);
+      const minLevel = settingsForm.compressionFormat === "xz" ? 0 : 1;
+      const maxLevel = 9;
+      const excludes = settingsForm.excludePatternsText
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean);
       if (
         settingsForm.autoBackupEnabled &&
         settingsForm.autoBackupFolderIds.length === 0
@@ -499,6 +531,18 @@ export function useBackupFoldersController() {
         setError("Horário do backup automático inválido.");
         return;
       }
+      if (
+        !Number.isFinite(compressionLevel) ||
+        compressionLevel < minLevel ||
+        compressionLevel > maxLevel
+      ) {
+        setError(`Nível de compressão inválido para ${settingsForm.compressionFormat}.`);
+        return;
+      }
+      if (!Number.isFinite(maxConcurrency) || maxConcurrency < 1 || maxConcurrency > 8) {
+        setError("Concorrência inválida. Use um valor entre 1 e 8.");
+        return;
+      }
       const normalized: backupService.BackupSettings = {
         mainMountPath: settingsForm.mainMountPath.trim(),
         backupMountPath: settingsForm.backupMountPath.trim(),
@@ -513,6 +557,13 @@ export function useBackupFoldersController() {
           timezone:
             settingsForm.autoBackupTimezone.trim() || "America/Sao_Paulo",
           folderIds: settingsForm.autoBackupFolderIds,
+        },
+        performance: {
+          profile: settingsForm.performanceProfile,
+          compressionFormat: settingsForm.compressionFormat,
+          compressionLevel,
+          maxConcurrency,
+          excludePatterns: excludes,
         },
       };
       const saved = await backupService.updateBackupSettings(normalized);
@@ -534,6 +585,11 @@ export function useBackupFoldersController() {
         )}`,
         autoBackupTimezone: saved.autoBackup.timezone ?? "America/Sao_Paulo",
         autoBackupFolderIds: folderIdsForForm,
+        performanceProfile: saved.performance?.profile ?? "balanced",
+        compressionFormat: saved.performance?.compressionFormat ?? "gz",
+        compressionLevel: String(saved.performance?.compressionLevel ?? 3),
+        maxConcurrency: String(saved.performance?.maxConcurrency ?? 2),
+        excludePatternsText: (saved.performance?.excludePatterns ?? []).join("\n"),
       });
       await Promise.all([loadMetrics(), loadFolders(), loadProgress(), loadHistory()]);
       setMessage("Configurações de armazenamento salvas.");
@@ -684,6 +740,8 @@ export function useBackupFoldersController() {
     addFolder,
     updateSettingsField,
     setAutoBackupEnabled,
+    setPerformanceProfile,
+    setCompressionFormat,
     toggleAutoBackupFolderId,
     selectAllAutoBackupFolders,
     clearAutoBackupFolders,

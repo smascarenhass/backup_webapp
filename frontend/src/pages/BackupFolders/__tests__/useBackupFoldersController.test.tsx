@@ -30,6 +30,13 @@ const defaultSettings: BackupSettings = {
     timezone: "America/Sao_Paulo",
     folderIds: null,
   },
+  performance: {
+    profile: "balanced",
+    compressionFormat: "gz",
+    compressionLevel: 3,
+    maxConcurrency: 2,
+    excludePatterns: [],
+  },
 };
 
 const defaultProcesses: BackupProcesses = {
@@ -46,6 +53,13 @@ const defaultProcesses: BackupProcesses = {
     lastScheduledRunDate: null,
     estimatedNextInternalRunAt: null,
     estimatedNextInternalRunNote: null,
+  },
+  performance: {
+    profile: "balanced" as const,
+    compressionFormat: "gz" as const,
+    compressionLevel: 3,
+    maxConcurrency: 2,
+    excludePatterns: [],
   },
   externalBackupSync: {
     status: "unavailable",
@@ -160,6 +174,22 @@ describe("useBackupFoldersController", () => {
     expect(result.current.error).toContain(
       "Marque ao menos uma pasta para o backup automático",
     );
+    expect(mocks.updateBackupSettings).not.toHaveBeenCalled();
+  });
+
+  it("saveSettings valida nível de compressão", async () => {
+    const { result } = renderHook(() => useBackupFoldersController());
+    await waitFor(() => expect(result.current.loadingFolders).toBe(false));
+
+    act(() => {
+      result.current.updateSettingsField("compressionLevel", "99");
+    });
+
+    await act(async () => {
+      await result.current.saveSettings();
+    });
+
+    expect(result.current.error).toContain("Nível de compressão inválido");
     expect(mocks.updateBackupSettings).not.toHaveBeenCalled();
   });
 });

@@ -16,6 +16,8 @@ export function SettingsView({ controller }: SettingsViewProps) {
     message,
     updateSettingsField,
     setAutoBackupEnabled,
+    setPerformanceProfile,
+    setCompressionFormat,
     toggleAutoBackupFolderId,
     selectAllAutoBackupFolders,
     clearAutoBackupFolders,
@@ -89,6 +91,13 @@ export function SettingsView({ controller }: SettingsViewProps) {
               <span className="text-slate-500">Retenção:</span>{" "}
               {settings.retention.maxAgeDays} dias · máx.{" "}
               {settings.retention.maxBackups} cópias
+            </p>
+            <p>
+              <span className="text-slate-500">Performance:</span>{" "}
+              perfil {settings.performance.profile} · {settings.performance.compressionFormat}
+              {" -"}
+              {settings.performance.compressionLevel} · conc.{" "}
+              {settings.performance.maxConcurrency}
             </p>
             <p>
               <span className="text-slate-500">Backup automático:</span>{" "}
@@ -200,6 +209,78 @@ export function SettingsView({ controller }: SettingsViewProps) {
               className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-emerald-600"
               disabled={!settingsForm.autoBackupEnabled}
               placeholder="America/Sao_Paulo"
+            />
+          </label>
+          <label className="text-sm text-slate-300">
+            Perfil de performance
+            <select
+              value={settingsForm.performanceProfile}
+              onChange={(event) =>
+                setPerformanceProfile(
+                  event.target.value as
+                    | "conservative"
+                    | "balanced"
+                    | "aggressive"
+                    | "custom",
+                )
+              }
+              className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-emerald-600"
+            >
+              <option value="conservative">Conservador</option>
+              <option value="balanced">Balanceado</option>
+              <option value="aggressive">Agressivo</option>
+              <option value="custom">Custom</option>
+            </select>
+          </label>
+          <label className="text-sm text-slate-300">
+            Formato de compressão
+            <select
+              value={settingsForm.compressionFormat}
+              onChange={(event) =>
+                setCompressionFormat(event.target.value as "gz" | "xz")
+              }
+              className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-emerald-600"
+            >
+              <option value="gz">gzip (.tar.gz)</option>
+              <option value="xz">xz (.tar.xz)</option>
+            </select>
+          </label>
+          <label className="text-sm text-slate-300">
+            Nível de compressão
+            <input
+              type="number"
+              min={settingsForm.compressionFormat === "xz" ? 0 : 1}
+              max={9}
+              value={settingsForm.compressionLevel}
+              onChange={(event) =>
+                updateSettingsField("compressionLevel", event.target.value)
+              }
+              className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-emerald-600"
+            />
+          </label>
+          <label className="text-sm text-slate-300">
+            Concorrência máxima
+            <input
+              type="number"
+              min={1}
+              max={8}
+              value={settingsForm.maxConcurrency}
+              onChange={(event) =>
+                updateSettingsField("maxConcurrency", event.target.value)
+              }
+              className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-emerald-600"
+            />
+          </label>
+          <label className="text-sm text-slate-300 md:col-span-2">
+            Exclusões (um padrão por linha)
+            <textarea
+              value={settingsForm.excludePatternsText}
+              onChange={(event) =>
+                updateSettingsField("excludePatternsText", event.target.value)
+              }
+              rows={4}
+              className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-xs text-slate-100 outline-none focus:border-emerald-600"
+              placeholder={"node_modules\n*.tmp\n.cache/*"}
             />
           </label>
         </div>

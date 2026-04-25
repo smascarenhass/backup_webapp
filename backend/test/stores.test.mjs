@@ -126,5 +126,38 @@ describe("backupSettingsStore", () => {
 
     const loaded = await readBackupSettings();
     expect(loaded.mainMountPath).toBe("/main");
+    expect(loaded.performance.profile).toBe("balanced");
+  });
+
+  it("normalizes and validates performance settings", async () => {
+    const { readBackupSettings, updateBackupSettings } = await import(
+      "../backupSettingsStore.mjs"
+    );
+
+    const saved = await updateBackupSettings({
+      mainMountPath: "/main",
+      backupMountPath: "/backup",
+      performance: {
+        profile: "aggressive",
+        compressionFormat: "gz",
+        compressionLevel: 2,
+        maxConcurrency: 4,
+        excludePatterns: ["node_modules", ".cache/*"],
+      },
+    });
+    expect(saved.performance.profile).toBe("aggressive");
+    expect(saved.performance.maxConcurrency).toBe(4);
+    expect(saved.performance.excludePatterns).toEqual(["node_modules", ".cache/*"]);
+
+    await expect(
+      updateBackupSettings({
+        performance: {
+          excludePatterns: ["bad pattern with space"],
+        },
+      }),
+    ).rejects.toThrow("Invalid exclude pattern");
+
+    const loaded = await readBackupSettings();
+    expect(loaded.performance.compressionFormat).toBe("gz");
   });
 });

@@ -222,6 +222,13 @@ describe("backupService", () => {
         folderIds: ["1"],
         lastScheduledRunDate: "2026-01-01",
       },
+      performance: {
+        profile: "balanced",
+        compressionFormat: "gz",
+        compressionLevel: 3,
+        maxConcurrency: 2,
+        excludePatterns: [],
+      },
     };
 
     fetchMock.mockResolvedValueOnce(jsonResponse({ settings }, { status: 200 }));
@@ -292,6 +299,13 @@ describe("backupService", () => {
         lastScheduledRunDate: null,
         estimatedNextInternalRunAt: null,
         estimatedNextInternalRunNote: null,
+      },
+      performance: {
+        profile: "balanced" as const,
+        compressionFormat: "gz" as const,
+        compressionLevel: 3,
+        maxConcurrency: 2,
+        excludePatterns: [],
       },
       externalBackupSync: {
         status: "unavailable" as const,

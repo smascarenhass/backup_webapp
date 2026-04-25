@@ -10,7 +10,7 @@
       "id": "93f6c280-4c30-4885-9f92-51e030c121ea",
       "path": "/hdds/main/documents/images",
       "createdAt": "2026-04-24T20:44:52.793Z",
-      "lastBackupAt": "2026-04-25T00:28:08.868Z"
+      "lastBackupAt": "2026-04-25T03:25:48.688Z"
     },
     {
       "id": "271538d1-a8b5-46d1-b015-f961a4b2c2a3",
@@ -52,6 +52,17 @@
       "createdAt": "2026-04-25T00:28:08.868Z",
       "triggerType": "automatic",
       "version": 3
+    },
+    {
+      "id": "e924ea29-d029-4424-9af8-55511365e6aa",
+      "folderId": "93f6c280-4c30-4885-9f92-51e030c121ea",
+      "folderPath": "/hdds/main/documents/images",
+      "archivePath": "/hdds/backup/webapp/2026/04/25/documents_images-v4_032547.tar.gz",
+      "sizeBytes": 1348211,
+      "durationMs": 1138,
+      "createdAt": "2026-04-25T03:25:48.688Z",
+      "triggerType": "automatic",
+      "version": 4
     }
   ]
 }

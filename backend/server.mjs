@@ -39,6 +39,7 @@ const backupSyncContainerName =
   process.env.BACKUP_SYNC_CONTAINER_NAME ??
   process.env.BACKUP_CONTAINER_NAME ??
   "backup_sync";
+const backupFailFast = process.env.BACKUP_FAIL_FAST !== "0";
 
 const backupProgress = {
   running: false,
@@ -418,7 +419,12 @@ function pad2(n) {
 /**
  * Relative path under backup mount: webapp/<UTC-YYYY>/<MM>/<DD>/<slug>-v<ver>_<HHMMSS>.tar.gz
  */
-function buildWebappArchiveRelPath({ slug, version, now = new Date() }) {
+function buildWebappArchiveRelPath({
+  slug,
+  version,
+  compressionFormat = "gz",
+  now = new Date(),
+}) {
   const y = now.getUTCFullYear();
   const mo = pad2(now.getUTCMonth() + 1);
   const d = pad2(now.getUTCDate());
@@ -426,8 +432,49 @@ function buildWebappArchiveRelPath({ slug, version, now = new Date() }) {
   const mm = pad2(now.getUTCMinutes());
   const ss = pad2(now.getUTCSeconds());
   const safeSlug = slug || "folder";
-  const fileName = `${safeSlug}-v${version}_${hh}${mm}${ss}.tar.gz`;
+  const extension = compressionFormat === "xz" ? ".tar.xz" : ".tar.gz";
+  const fileName = `${safeSlug}-v${version}_${hh}${mm}${ss}${extension}`;
   return path.join("webapp", String(y), mo, d, fileName);
+}
+
+function getCompressionSpec(settings) {
+  const perf = settings?.performance ?? {};
+  const format = perf.compressionFormat === "xz" ? "xz" : "gz";
+  const minLevel = format === "xz" ? 0 : 1;
+  const maxLevel = 9;
+  const rawLevel = Number.parseInt(String(perf.compressionLevel ?? "3"), 10);
+  const level =
+    Number.isFinite(rawLevel) && rawLevel >= minLevel && rawLevel <= maxLevel
+      ? rawLevel
+      : 3;
+  const rawConcurrency = Number.parseInt(String(perf.maxConcurrency ?? "2"), 10);
+  const maxConcurrency =
+    Number.isFinite(rawConcurrency) && rawConcurrency >= 1 && rawConcurrency <= 8
+      ? rawConcurrency
+      : 2;
+  return { format, level, maxConcurrency };
+}
+
+function getSafeExcludePatterns(settings) {
+  const perf = settings?.performance ?? {};
+  if (!Array.isArray(perf.excludePatterns)) {
+    return [];
+  }
+  return perf.excludePatterns
+    .map((item) => String(item ?? "").trim())
+    .filter(Boolean)
+    .filter((item) => /^[a-zA-Z0-9_./*?@+-]+$/.test(item))
+    .slice(0, 64);
+}
+
+function buildTarArgs({ archivePath, resolvedFolder, compressionSpec, excludes }) {
+  const mode = compressionSpec.format === "xz" ? "-cJf" : "-czf";
+  const args = [mode, archivePath, "-C", resolvedFolder];
+  for (const pattern of excludes) {
+    args.push(`--exclude=${pattern}`);
+  }
+  args.push(".");
+  return args;
 }
 
 function slugifyFolderPath(resolvedFolder, resolvedMainMount) {
@@ -578,45 +625,89 @@ async function executeBackupPipeline({
       throw new Error("No matching folders selected for backup.");
     }
 
-    const createdArchives = [];
-    for (const folder of targetFolders) {
-      backupProgress.currentFolderPath = folder.path;
-      backupProgress.lastMessage = `Compressing ${folder.path}`;
+    const compressionSpec = getCompressionSpec(settings);
+    const excludes = getSafeExcludePatterns(settings);
+    backupProgress.lastMessage = `Preparing compression (${compressionSpec.format} -${compressionSpec.level})`;
 
-      const resolvedFolder = path.resolve(folder.path);
-      if (
-        resolvedFolder !== resolvedMain &&
-        !resolvedFolder.startsWith(`${resolvedMain}${path.sep}`)
-      ) {
-        throw new Error(`Folder outside main mount path: ${folder.path}`);
-      }
-      await ensurePathReadable(resolvedFolder);
-      const nextVersion = await peekNextBackupVersion(folder.id);
-      const slug = slugifyFolderPath(resolvedFolder, resolvedMain);
-      const archiveRel = buildWebappArchiveRelPath({
-        slug,
-        version: nextVersion,
-      });
-      const archivePath = path.join(resolvedBackupMount, archiveRel);
-      await mkdir(path.dirname(archivePath), { recursive: true });
-      const compressStartedAt = Date.now();
-      await execFileAsync("tar", ["-czf", archivePath, "-C", resolvedFolder, "."]);
-      const compressDurationMs = Date.now() - compressStartedAt;
-      const archiveStat = await stat(archivePath);
-      await recordFolderBackup({
-        folderId: folder.id,
-        folderPath: folder.path,
-        archivePath,
-        sizeBytes: archiveStat.size,
-        durationMs: compressDurationMs,
-        triggerType,
-        version: nextVersion,
-      });
-      createdArchives.push(archivePath);
-      backupProgress.processedFolders += 1;
-      backupProgress.progressPct = Math.round(
-        (backupProgress.processedFolders / backupProgress.totalFolders) * 100,
-      );
+    const createdArchives = [];
+    const durationsMs = [];
+    let totalArchivedBytes = 0;
+    let folderIndex = 0;
+    let firstError = null;
+    const workerCount = Math.min(compressionSpec.maxConcurrency, targetFolders.length);
+    const workers = Array.from({ length: workerCount }, () =>
+      (async () => {
+        while (true) {
+          if (firstError && backupFailFast) {
+            return;
+          }
+          const current = folderIndex;
+          folderIndex += 1;
+          if (current >= targetFolders.length) {
+            return;
+          }
+          const folder = targetFolders[current];
+          try {
+            backupProgress.currentFolderPath = folder.path;
+            backupProgress.lastMessage = `Compressing ${folder.path}`;
+
+            const resolvedFolder = path.resolve(folder.path);
+            if (
+              resolvedFolder !== resolvedMain &&
+              !resolvedFolder.startsWith(`${resolvedMain}${path.sep}`)
+            ) {
+              throw new Error(`Folder outside main mount path: ${folder.path}`);
+            }
+            await ensurePathReadable(resolvedFolder);
+            const nextVersion = await peekNextBackupVersion(folder.id);
+            const slug = slugifyFolderPath(resolvedFolder, resolvedMain);
+            const archiveRel = buildWebappArchiveRelPath({
+              slug,
+              version: nextVersion,
+              compressionFormat: compressionSpec.format,
+            });
+            const archivePath = path.join(resolvedBackupMount, archiveRel);
+            await mkdir(path.dirname(archivePath), { recursive: true });
+            const compressStartedAt = Date.now();
+            await execFileAsync(
+              "tar",
+              buildTarArgs({
+                archivePath,
+                resolvedFolder,
+                compressionSpec,
+                excludes,
+              }),
+            );
+            const compressDurationMs = Date.now() - compressStartedAt;
+            const archiveStat = await stat(archivePath);
+            await recordFolderBackup({
+              folderId: folder.id,
+              folderPath: folder.path,
+              archivePath,
+              sizeBytes: archiveStat.size,
+              durationMs: compressDurationMs,
+              triggerType,
+              version: nextVersion,
+            });
+            createdArchives.push(archivePath);
+            durationsMs.push(compressDurationMs);
+            totalArchivedBytes += archiveStat.size;
+            backupProgress.processedFolders += 1;
+            backupProgress.progressPct = Math.round(
+              (backupProgress.processedFolders / backupProgress.totalFolders) * 100,
+            );
+          } catch (err) {
+            if (!firstError) {
+              firstError = err;
+            }
+          }
+        }
+      })(),
+    );
+
+    await Promise.all(workers);
+    if (firstError) {
+      throw firstError;
     }
 
     const retentionResult = await enforceRetention({
@@ -625,7 +716,12 @@ async function executeBackupPipeline({
       maxBackups: settings.retention.maxBackups,
     });
 
-    backupProgress.lastMessage = `Backup finished (${createdArchives.length} folders).`;
+    const totalDurationMs = durationsMs.reduce((sum, value) => sum + value, 0);
+    const throughputMBps =
+      totalDurationMs > 0 ? totalArchivedBytes / 1024 / 1024 / (totalDurationMs / 1000) : 0;
+    backupProgress.lastMessage = `Backup finished (${createdArchives.length} folders, ${throughputMBps.toFixed(
+      1,
+    )} MB/s).`;
     return {
       ok: true,
       message: `Backup finished for ${createdArchives.length} folder(s).`,
@@ -633,6 +729,14 @@ async function executeBackupPipeline({
       removedByRetention: retentionResult.removedArchives,
       archives: createdArchives,
       triggerType,
+      metrics: {
+        compressionFormat: compressionSpec.format,
+        compressionLevel: compressionSpec.level,
+        concurrency: workerCount,
+        totalArchivedBytes,
+        totalDurationMs,
+        throughputMBps,
+      },
     };
   } finally {
     backupProgress.running = false;
@@ -807,6 +911,8 @@ app.get("/api/backup/processes", async (_req, res) => {
     const runAtLocal = `${pad(settings.autoBackup.runAtHour)}:${pad(
       settings.autoBackup.runAtMinute,
     )}`;
+    const compressionSpec = getCompressionSpec(settings);
+    const excludes = getSafeExcludePatterns(settings);
 
     const externalInspect = await inspectDockerContainer(backupSyncContainerName);
     let externalCronLine = null;
@@ -830,6 +936,13 @@ app.get("/api/backup/processes", async (_req, res) => {
         lastScheduledRunDate: settings.autoBackup.lastScheduledRunDate,
         estimatedNextInternalRunAt: estimate.estimatedNextInternalRunAt,
         estimatedNextInternalRunNote: estimate.estimatedNextInternalRunNote,
+      },
+      performance: {
+        profile: settings.performance?.profile ?? "balanced",
+        compressionFormat: compressionSpec.format,
+        compressionLevel: compressionSpec.level,
+        maxConcurrency: compressionSpec.maxConcurrency,
+        excludePatterns: excludes,
       },
       externalBackupSync: {
         ...externalInspect,

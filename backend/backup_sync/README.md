@@ -49,6 +49,16 @@ Conforme o `docker-compose.yml` na raiz:
 - **`RETENTION_DAYS`**: retenção por idade (dias); `0` desliga remoção.
 - **`LOG_FILE`**: arquivo de log dentro do container (ex.: `/var/log/backup/...`).
 - **`CRON_SCHEDULE`**: após o `entrypoint.sh` dar `source` neste arquivo, **este valor manda** no agendamento efetivo.
+- **`COMPRESS_FORMAT`**: `gz` (mais rápido) ou `xz` (maior compressão).
+- **`COMPRESS_LEVEL`**: nível de compressão (`gz`: 1-9, `xz`: 0-9).
+- **`JOBS_CONCURRENCY`**: jobs paralelos (1-8, default balanceado 2).
+- **`BACKUP_EXCLUDES`**: padrões separados por vírgula para `tar --exclude` (ex.: `node_modules,.cache/*`).
+
+O script agora também registra métricas por job:
+
+- duração
+- tamanho final (bytes)
+- throughput aproximado (MB/s)
 
 ## Operação útil
 

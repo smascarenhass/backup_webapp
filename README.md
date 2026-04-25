@@ -144,6 +144,28 @@ docker compose up -d --build
 |----------|-------|-------------|
 | `VITE_API_URL` | frontend build | API base URL; empty = same host (recommended in Docker with nginx). |
 
+### Backend API (performance tuning)
+
+As configurações ficam em `backup-settings.json` sob `performance` e podem ser alteradas via tela de Settings:
+
+- `performance.profile`: `conservative`, `balanced`, `aggressive`, `custom`
+- `performance.compressionFormat`: `gz` ou `xz`
+- `performance.compressionLevel`: `gz` 1-9, `xz` 0-9
+- `performance.maxConcurrency`: 1-8
+- `performance.excludePatterns`: lista de padrões `tar --exclude`
+
+Variável opcional:
+
+- `BACKUP_FAIL_FAST=0|1` (default `1`) para interromper ou continuar quando uma pasta falha.
+
+### Baseline / comparação de performance
+
+Sugestão de rollout:
+
+1. manter `maxConcurrency=1` e ajustar apenas compressão (`gz-3`);
+2. medir throughput (`MB/s`) e duração no histórico/mensagem de progresso;
+3. subir para `maxConcurrency=2` e comparar.
+
 ## License
 
 Internal use / according to repository policy.

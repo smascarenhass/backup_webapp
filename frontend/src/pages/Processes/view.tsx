@@ -166,6 +166,26 @@ export function ProcessesView({ controller }: ProcessesViewProps) {
               Tick do servidor: {processes.serverTickMs} ms.{" "}
               {processes.schedule.estimatedNextInternalRunNote}
             </p>
+            <div className="mt-2 rounded-lg border border-slate-800 bg-slate-950/60 p-3 text-xs">
+              <p className="uppercase tracking-wide text-slate-500">Performance ativa</p>
+              <p className="mt-1 text-slate-300">
+                Perfil: <span className="font-mono">{processes.performance.profile}</span>
+              </p>
+              <p className="text-slate-300">
+                Compressão:{" "}
+                <span className="font-mono">
+                  {processes.performance.compressionFormat}-{processes.performance.compressionLevel}
+                </span>{" "}
+                · Concorrência:{" "}
+                <span className="font-mono">{processes.performance.maxConcurrency}</span>
+              </p>
+              <p className="text-slate-400">
+                Exclusões:{" "}
+                {processes.performance.excludePatterns.length > 0
+                  ? processes.performance.excludePatterns.join(", ")
+                  : "nenhuma"}
+              </p>
+            </div>
           </div>
         )}
       </section>

@@ -78,6 +78,21 @@ function normalizeExecFileArgs(args) {
   return { cmd, argv, options, callback };
 }
 
+function tarOutputPath(argv) {
+  if (!Array.isArray(argv)) return "";
+  const cfIndex = argv.indexOf("-cf");
+  if (cfIndex >= 0 && typeof argv[cfIndex + 1] === "string") {
+    return argv[cfIndex + 1];
+  }
+  if (
+    (argv[0] === "-czf" || argv[0] === "-cJf") &&
+    typeof argv[1] === "string"
+  ) {
+    return argv[1];
+  }
+  return "";
+}
+
 async function listenHttp(app) {
   const server = http.createServer(app);
   await new Promise((resolve, reject) => {
@@ -132,8 +147,12 @@ describe("server HTTP (backup trigger)", () => {
       if (!callback) {
         throw new Error("execFile mock expected a callback");
       }
-      if (cmd === "tar" && Array.isArray(argv) && argv[0] === "-czf") {
-        const outFile = argv[1];
+      if (cmd === "tar" && Array.isArray(argv)) {
+        const outFile = tarOutputPath(argv);
+        if (!outFile) {
+          callback(new Error("tar output path missing in argv"));
+          return {};
+        }
         // Minimal gzip payload (not a real tar) — enough for stat() + pipeline.
         const gzipHeader = Buffer.from([0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03]);
         import("node:fs/promises")
@@ -207,7 +226,11 @@ describe("server HTTP (backup trigger)", () => {
       }
       if (cmd === "tar") {
         void firstGate.then(() => {
-          const outFile = argv[1];
+          const outFile = tarOutputPath(argv);
+          if (!outFile) {
+            callback(new Error("tar output path missing in argv"));
+            return;
+          }
           const gzipHeader = Buffer.from([0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03]);
           import("node:fs/promises")
             .then((fs) => fs.mkdir(path.dirname(outFile), { recursive: true }))
