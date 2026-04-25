@@ -30,7 +30,6 @@ export function DashboardView({ controller }: DashboardViewProps) {
     loadingHistory,
     reloadMetrics,
     reload: reloadFolders,
-    reloadHistory,
     toHostPath,
   } = controller;
 

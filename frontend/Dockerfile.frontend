@@ -1,23 +1,24 @@
-FROM node:20-alpine AS dev
+FROM node:20-alpine AS deps
 
 WORKDIR /app
 
-COPY package.json package-lock.json* ./
-RUN npm install
+COPY package.json package-lock.json ./
+RUN npm ci
 
-EXPOSE 5173
+FROM deps AS test
 
-FROM node:20-alpine AS build
-
-WORKDIR /app
-
-COPY package.json package-lock.json* ./
-RUN npm install
-
-COPY index.html vite.config.ts tsconfig.json tsconfig.app.json tsconfig.node.json tailwind.config.js postcss.config.js ./
+COPY index.html vite.config.ts tsconfig.json tsconfig.app.json tsconfig.node.json tsconfig.vitest.json tailwind.config.js postcss.config.js vitest.config.ts ./
 COPY src ./src
 
+RUN npm test
+
+FROM test AS build
+
 RUN npm run build
+
+FROM test AS dev
+
+EXPOSE 5173
 
 FROM nginx:alpine
 
